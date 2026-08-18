@@ -10664,7 +10664,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   <!-- ===================== SINCRONIZACIÓN ===================== -->
   <section class="view" id="view-sync">
     <h2 class="section-title">Sincronización entre laptops</h2>
-    <p class="section-sub">Conecta una base de datos gratuita (Firebase) para que la lista de estudiantes y la asistencia se compartan en tiempo real entre todas las laptops del colegio, y el Excel salga combinado.</p>
+    <p class="section-sub">Este archivo ya viene conectado automáticamente a la base de datos en la nube de la IE "José Santos Figueroa" — cualquier laptop que abra este mismo enlace se sincroniza sola, sin configurar nada. Este panel es solo por si en el futuro necesitas cambiar de proyecto o desconectar.</p>
 
     <div class="grid-2">
       <div class="card">
@@ -11815,15 +11815,30 @@ checkLibraries();
 renderRoster();
 renderReportStats();
 
-// Auto-conectar a la nube si esta laptop ya fue configurada antes.
+// Configuración del proyecto de Firebase de la IE "José Santos Figueroa".
+// Queda incrustada aquí para que cualquier laptop que abra este mismo
+// archivo/enlace se conecte automáticamente, sin que nadie tenga que
+// copiar y pegar nada en la pestaña "Sincronización".
+const DEFAULT_CLOUD_CONFIG = {
+  apiKey: "AIzaSyDr-75TNReW-aXFYhBnJepzlXimYMo3pv8",
+  authDomain: "asistencia-josafi.firebaseapp.com",
+  projectId: "asistencia-josafi",
+  storageBucket: "asistencia-josafi.firebasestorage.app",
+  messagingSenderId: "597243209802",
+  appId: "1:597243209802:web:07b12649bacc0fcf2fdeb3"
+};
+
+// Auto-conectar a la nube: usa la configuración guardada en esta laptop
+// si existe, y si no, la del colegio incrustada arriba.
 (function initCloud(){
-  const cfg = getCloudConfig();
-  if(cfg){
-    fillCloudConfigForm(cfg);
-    connectCloud(cfg, true).then(ok=>{
-      if(ok) renderReportStats();
-    });
-  }
+  const cfg = getCloudConfig() || DEFAULT_CLOUD_CONFIG;
+  fillCloudConfigForm(cfg);
+  connectCloud(cfg, true).then(ok=>{
+    if(ok){
+      saveCloudConfig(cfg);
+      renderReportStats();
+    }
+  });
 })();
 </script>
 </body>
