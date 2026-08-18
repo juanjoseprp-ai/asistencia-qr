@@ -10151,8 +10151,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     --paper:#FFFFFF;
     --ink:#16202A;
     --ink-soft:#5B6773;
-    --navy:#1D3557;
-    --navy-dark:#0F1E33;
+    --navy:#1F6B3A;
+    --navy-dark:#0F3D20;
     --gold:#E9B44C;
     --teal:#2A9D8F;
     --red:#E63946;
@@ -10709,6 +10709,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   </section>
 
 </main>
+
+<footer style="text-align:center;padding:18px 12px 28px;color:var(--ink-soft);font-size:12px;">
+  © Sistema desarrollado por Juan Josep Ramos Pozo
+</footer>
 
 <div id="printArea"><div class="card-grid" id="printGrid"></div></div>
 <div class="toast-wrap" id="toastWrap"></div>
@@ -11694,14 +11698,14 @@ function buildSectionSheet(sec, allRecords, dateList){
       }
     });
 
-  const header = ['N°', 'Apellidos y Nombres', 'DNI'];
-  dateList.forEach(()=>{ header.push('Fecha', 'Hora'); });
+  // Una sola fila de encabezado: cada día es directamente su fecha
+  // como título de columna (sin fila combinada adicional).
+  const header = ['N°', 'Apellidos y Nombres', 'DNI', ...dateList.map(d => formatFechaDisplay(d))];
 
   const aoa = [header];
-  const merges = [];
 
   if(students.length === 0){
-    aoa.push([ '', '(sin estudiantes registrados en esta sección)', '', ...dateList.flatMap(()=>['','']) ]);
+    aoa.push([ '', '(sin estudiantes registrados en esta sección)', '', ...dateList.map(()=>'') ]);
   }else{
     // Pre-index: date -> dni -> hora
     const byDateDni = {};
@@ -11712,29 +11716,15 @@ function buildSectionSheet(sec, allRecords, dateList){
 
     students.forEach((s, idx) => {
       const row = [idx+1, s.ap, s.dni];
-      dateList.forEach((d, di) => {
-        const fechaCell = (idx === 0) ? formatFechaDisplay(d) : '';
-        const horaCell = byDateDni[d][s.dni] || '';
-        row.push(fechaCell, horaCell);
-      });
+      dateList.forEach(d => row.push(byDateDni[d][s.dni] || ''));
       aoa.push(row);
     });
-
-    // Merge each Fecha column down through every student row so the
-    // date appears once for the whole group, as requested.
-    if(students.length > 1){
-      dateList.forEach((d, di) => {
-        const col = 3 + di*2; // Fecha column index (0-based)
-        merges.push({ s:{ r:1, c:col }, e:{ r:students.length, c:col } });
-      });
-    }
   }
 
   const sheet = XLSX.utils.aoa_to_sheet(aoa);
-  sheet['!merges'] = merges;
   sheet['!cols'] = [
     {wch:5}, {wch:32}, {wch:12},
-    ...dateList.flatMap(()=> [{wch:12},{wch:10}])
+    ...dateList.map(()=> ({wch:11}))
   ];
   return { sheet };
 }
@@ -11751,7 +11741,11 @@ async function buildWorkbook(history){
     summaryRows.push({ 'Sección': sec.key, 'Total de registros (todas las fechas)': totalRegistros });
   });
 
-  const summarySheet = XLSX.utils.json_to_sheet(summaryRows);
+  const summarySheet = XLSX.utils.json_to_sheet(summaryRows, { origin: 0 });
+  XLSX.utils.sheet_add_aoa(summarySheet, [
+    [],
+    ['Sistema desarrollado por Juan Josep Ramos Pozo'],
+  ], { origin: -1 });
   summarySheet['!cols'] = [{wch:12},{wch:28}];
   XLSX.utils.book_append_sheet(wb, summarySheet, 'Resumen');
   wb.SheetNames.unshift(wb.SheetNames.pop()); // move Resumen to front
