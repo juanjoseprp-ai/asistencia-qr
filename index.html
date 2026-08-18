@@ -10834,9 +10834,18 @@ function attachCloudListeners(){
   if(!db) return;
   if(unsubStudents) unsubStudents();
   unsubStudents = db.collection('estudiantes').onSnapshot(snap=>{
-    const list = [];
-    snap.forEach(doc => list.push(doc.data()));
-    saveStudents(list); // cache local por si se pierde internet
+    const cloudList = [];
+    snap.forEach(doc => cloudList.push(doc.data()));
+
+    // Salvaguarda: si la nube todavía no tiene estudiantes pero esta
+    // laptop sí tiene una lista local, NUNCA se sobrescribe con vacío.
+    // Esto evita perder datos si aún no se hizo la subida inicial.
+    if(cloudList.length === 0 && getStudents().length > 0){
+      setCloudStatus('⚠ Conectado, pero la nube todavía no tiene estudiantes. Usa "Subir mi lista y mi historial local a la nube" en esta laptop para no perder tu lista.', true);
+      return;
+    }
+
+    saveStudents(cloudList); // cache local por si se pierde internet
     renderRoster();
     renderReportStats();
   }, err => console.error('Error escuchando estudiantes:', err));
@@ -10851,6 +10860,9 @@ function attachTodayListener(){
   unsubToday = db.collection('asistencia').where('fecha','==',date).onSnapshot(snap=>{
     const list = [];
     snap.forEach(doc => list.push(doc.data()));
+    // Misma salvaguarda: no borrar registros locales de hoy si la nube
+    // aún no los tiene reflejados (por ejemplo, apenas se conectó).
+    if(list.length === 0 && getAttendance(date).length > 0) return;
     saveAttendance(date, list); // cache local
     renderAttendanceTable();
   }, err => console.error('Error escuchando asistencia de hoy:', err));
