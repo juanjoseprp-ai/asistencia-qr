@@ -10320,6 +10320,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     border-radius:8px;
     padding:6px 10px;
   }
+  .cloud-pill{display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-top:6px;font-family:var(--body);font-size:11.5px;color:#DDEBE2;}
+  .cloud-pill .dot{width:8px;height:8px;border-radius:50%;background:#F5B7B1;flex-shrink:0;}
+  .cloud-pill .dot.on{background:#5EE0A0;box-shadow:0 0 0 3px rgba(94,224,160,.25);}
+  .modal-back{position:fixed;inset:0;background:rgba(10,25,15,.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;}
+  .modal{background:#fff;border-radius:14px;padding:22px;width:100%;max-width:460px;box-shadow:0 20px 50px rgba(0,0,0,.35);}
   .lib-warning{
     background:#FDEAEA;
     border:1px solid #F5C2C2;
@@ -10496,6 +10501,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   <div class="clock">
     <div class="time" id="clockTime">--:--:--</div>
     <div class="date" id="clockDate">--</div>
+    <div class="cloud-pill" title="Estado de la nube"><span class="dot" id="cloudDot"></span><span id="cloudStatus">Conectando…</span></div>
   </div>
 </header>
 
@@ -10564,7 +10570,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   <!-- ===================== ESTUDIANTES ===================== -->
   <section class="view" id="view-estudiantes">
     <h2 class="section-title">Estudiantes y carnets QR</h2>
-    <p class="section-sub">Registra a los estudiantes y genera su carnet con código QR para imprimir.</p>
+    <p class="section-sub">Registra, edita o elimina estudiantes y genera su carnet con código QR. Todo se guarda solo en la nube y se ve al instante en todas las laptops.</p>
     <div class="lib-warning" id="rosterError" style="display:none;"></div>
 
     <div class="grid-2">
@@ -10683,6 +10689,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 </footer>
 
 <div id="printArea"><div class="card-grid" id="printGrid"></div></div>
+<div class="modal-back" id="editModal" style="display:none;">
+  <div class="modal">
+    <h3 style="font-family:var(--display);color:var(--navy);margin:0 0 14px;">Editar estudiante</h3>
+    <div class="form-row">
+      <div class="full"><label>Apellidos y nombres</label><input type="text" id="edAp" style="width:100%;"></div>
+      <div><label>DNI</label><input type="text" id="edDni" maxlength="15" style="width:100%;"></div>
+      <div><label>Grado</label><select id="edGrado" style="width:100%;"></select></div>
+      <div><label>Sección</label><select id="edSeccion" style="width:100%;"><option value="A">A</option><option value="B">B</option></select></div>
+    </div>
+    <p class="hint" id="edHint">Si cambias el DNI, el historial de asistencia de este estudiante se actualiza solo. Los carnets ya impresos con el DNI anterior dejarán de funcionar: vuelve a imprimirlos.</p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;">
+      <button class="btn btn-outline" id="edCancel">Cancelar</button>
+      <button class="btn btn-primary" id="edSave">Guardar cambios</button>
+    </div>
+  </div>
+</div>
 <div class="toast-wrap" id="toastWrap"></div>
 
 <script>
@@ -10691,6 +10713,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 ========================================================= */
 const GRADOS = [1,2,3,4,5];
 const SECCIONES = ['A','B'];
+const esCollator = new Intl.Collator('es');
+function compareStudents(a, b){ return esCollator.compare(String(a.ap), String(b.ap)); }
 function seccionKey(g,s){ return g + '°' + s; }
 function allSections(){
   const out = [];
@@ -10719,22 +10743,31 @@ function getAttendance(dateISO){
 function saveAttendance(dateISO, list){ localStorage.setItem(LS_ATT_PREFIX+dateISO, JSON.stringify(list)); }
 
 /* =========================================================
-   CLOUD SYNC (Firebase Firestore) — comparte estudiantes y
-   asistencia entre varias laptops en tiempo real. Si no está
-   conectado, todo sigue funcionando solo con localStorage.
+   NUBE (Firebase Firestore) — SIEMPRE ACTIVA Y EN TIEMPO REAL
+   Estudiantes y asistencia viven en la nube: lo que se haga en una
+   laptop aparece al instante en todas las demás. Sin internet, la
+   laptop sigue registrando asistencia y la envía sola al volver.
 ========================================================= */
-const LS_CLOUD_CFG = 'ieqr_cloud_config';
-const LS_CLOUD_SEEN = 'ieqr_cloud_has_roster';
+// ⚙ Proyecto de Firebase de la IE "José Santos Figueroa".
+// Si algún día cambias de proyecto, reemplaza SOLO estos valores.
+const CLOUD_CONFIG = {
+  apiKey: "AIzaSyDr-75TNReW-aXFYhBnJepzlXimYMo3pv8",
+  authDomain: "asistencia-josafi.firebaseapp.com",
+  projectId: "asistencia-josafi",
+  storageBucket: "asistencia-josafi.firebasestorage.app",
+  messagingSenderId: "597243209802",
+  appId: "1:597243209802:web:07b12649bacc0fcf2fdeb3"
+};
+const LS_PENDING = 'ieqr_pending';
 let cloudEnabled = false;
+let cloudLive = false;
 let db = null;
 let unsubStudents = null;
 let unsubToday = null;
-
-function getCloudConfig(){
-  try { return JSON.parse(localStorage.getItem(LS_CLOUD_CFG)) || null; } catch(e){ return null; }
-}
-function saveCloudConfig(cfg){ localStorage.setItem(LS_CLOUD_CFG, JSON.stringify(cfg)); }
-function clearCloudConfig(){ localStorage.removeItem(LS_CLOUD_CFG); }
+let rosterFirstLoad = true;
+let todayFirstLoad = true;
+let seedChecked = false;
+let pastCache = null; // historial de días anteriores (se lee una vez y se reutiliza)
 
 function setCloudStatus(text, on){
   const dot = document.getElementById('cloudDot');
@@ -10742,73 +10775,108 @@ function setCloudStatus(text, on){
   if(dot) dot.classList.toggle('on', !!on);
   if(status) status.textContent = text;
 }
+function updateConnectionStatus(){
+  if(!cloudEnabled){ setCloudStatus('Sin nube · solo esta laptop', false); return; }
+  if(!navigator.onLine){ setCloudStatus('Sin internet · guardando en esta laptop', false); return; }
+  if(!cloudLive){ setCloudStatus('Conectando…', false); return; }
+  const n = getPending().length;
+  setCloudStatus(n ? `En línea · ${n} por enviar` : 'En línea · tiempo real', true);
+}
+window.addEventListener('online', ()=>{ updateConnectionStatus(); flushPending(); });
+window.addEventListener('offline', updateConnectionStatus);
 
+/* ---- Registros hechos sin internet: se guardan y se envían solos ---- */
+function getPending(){
+  try { return JSON.parse(localStorage.getItem(LS_PENDING)) || []; } catch(e){ return []; }
+}
+function setPending(list){
+  localStorage.setItem(LS_PENDING, JSON.stringify(list));
+  updateConnectionStatus();
+}
+function addPending(rec){
+  const list = getPending();
+  if(!list.find(r => r.fecha === rec.fecha && String(r.dni) === String(rec.dni))){
+    list.push(rec);
+    setPending(list);
+  }
+}
+let flushing = false;
+async function flushPending(){
+  if(flushing || !cloudEnabled || !db || !navigator.onLine) return;
+  const pend = getPending();
+  if(pend.length === 0) return;
+  flushing = true;
+  try{
+    const remaining = [];
+    for(const rec of pend){
+      try{
+        const ref = db.collection('asistencia').doc(`${rec.fecha}_${rec.dni}`);
+        const ex = await withTimeout(ref.get(), 8000);
+        if(!ex.exists) await withTimeout(ref.set(rec), 8000);
+      }catch(e){ remaining.push(rec); }
+    }
+    setPending(remaining);
+    const sent = pend.length - remaining.length;
+    if(sent > 0){ pastCache = null; toast(`☁ ${sent} registro(s) hechos sin internet ya se enviaron a la nube.`); }
+  }finally{ flushing = false; }
+}
+function mergeWithPending(list, date){
+  const out = list.slice();
+  getPending().filter(r => r.fecha === date).forEach(r=>{
+    if(!out.find(x => String(x.dni) === String(r.dni))) out.push(r);
+  });
+  return out;
+}
 
-async function connectCloud(cfg, silent){
+/* ---- Conexión y escuchas en tiempo real ---- */
+function startCloud(){
   if(typeof firebase === 'undefined'){
-    toast('No se pudo cargar Firebase. Verifica tu conexión a Internet.', true);
-    return false;
+    cloudEnabled = false;
+    updateConnectionStatus();
+    setCloudStatus('Sin nube · no cargó Firebase (recarga con internet)', false);
+    return;
   }
   try{
-    if(firebase.apps && firebase.apps.length){
-      firebase.apps.slice().forEach(a => a.delete());
-    }
-    firebase.initializeApp(cfg);
+    if(!firebase.apps.length) firebase.initializeApp(CLOUD_CONFIG);
     db = firebase.firestore();
-    // Prueba de conexión real: intenta leer la colección de estudiantes.
-    await db.collection('estudiantes').limit(1).get();
     cloudEnabled = true;
-    setCloudStatus('✅ Conectado — sincronizando con las demás laptops en tiempo real.', true);
     attachCloudListeners();
-    if(!silent) toast('Conectado a la nube correctamente.');
-    return true;
+    updateConnectionStatus();
+    setInterval(flushPending, 30000);
+    flushPending();
   }catch(err){
     cloudEnabled = false;
-    setCloudStatus('❌ No se pudo conectar: ' + err.message, false);
-    if(!silent) toast('No se pudo conectar: ' + err.message, true);
-    return false;
+    console.error('No se pudo iniciar Firebase:', err);
+    setCloudStatus('Sin nube · ' + err.message, false);
   }
 }
 
-function disconnectCloud(){
-  cloudEnabled = false;
-  db = null;
-  if(unsubStudents){ unsubStudents(); unsubStudents = null; }
-  if(unsubToday){ unsubToday(); unsubToday = null; }
-  clearCloudConfig();
-  setCloudStatus('No conectado — trabajando solo en esta laptop.', false);
-  renderRoster();
-  renderAttendanceTable();
-}
-
-// Mantiene la lista de estudiantes de TODAS las laptops sincronizada
-// en tiempo real: apenas alguien agrega/borra un estudiante en cualquier
-// laptop conectada, se refleja aquí también.
 function attachCloudListeners(){
   if(!db) return;
   if(unsubStudents) unsubStudents();
   unsubStudents = db.collection('estudiantes').onSnapshot(snap=>{
-    const cloudList = [];
-    snap.forEach(doc => cloudList.push(doc.data()));
+    const list = [];
+    snap.forEach(doc => list.push(doc.data()));
+    const fromCache = !!(snap.metadata && snap.metadata.fromCache);
+    // Sin conexión y sin datos en memoria: se queda la copia de esta laptop.
+    if(fromCache && list.length === 0) return;
+    if(!fromCache){ cloudLive = true; updateConnectionStatus(); }
 
-    // Salvaguardas para no borrar la lista local por error:
-    // 1) Datos que solo vienen de la caché sin conexión y están vacíos: se ignoran.
-    if(cloudList.length === 0 && snap.metadata && snap.metadata.fromCache){ return; }
-    // 2) La nube nunca tuvo estudiantes y esta laptop sí: se conserva la lista local.
-    if(cloudList.length === 0){
-      if(getStudents().length > 0 && localStorage.getItem(LS_CLOUD_SEEN) !== '1'){
-        setCloudStatus('⚠ Conectado, pero la nube todavía no tiene estudiantes. Usa "Subir mi lista y mi historial local a la nube" en esta laptop para no perder tu lista.', true);
-        return;
-      }
-    }else{
-      localStorage.setItem(LS_CLOUD_SEEN, '1');
+    // Aviso cuando OTRA laptop cambia la nómina.
+    if(!rosterFirstLoad && snap.metadata && !snap.metadata.hasPendingWrites && typeof snap.docChanges === 'function'){
+      const n = snap.docChanges().length;
+      if(n > 0) toast(`🔄 La nómina se actualizó desde otra laptop (${n} cambio${n>1?'s':''}).`);
     }
+    rosterFirstLoad = false;
 
-    saveStudents(cloudList); // cache local por si se pierde internet
+    saveStudents(list); // copia local para trabajar sin internet
     renderRoster();
     renderReportStats();
-  }, err => console.error('Error escuchando estudiantes:', err));
-
+    if(!fromCache && list.length === 0) maybeSeedRoster();
+  }, err=>{
+    console.error('Error escuchando estudiantes:', err);
+    setCloudStatus('Error de nube · ' + explainCloudError(err), false);
+  });
   attachTodayListener();
 }
 
@@ -10816,20 +10884,46 @@ function attachTodayListener(){
   if(!db) return;
   if(unsubToday) unsubToday();
   const date = todayISO();
+  todayFirstLoad = true;
+  pastCache = null;
   unsubToday = db.collection('asistencia').where('fecha','==',date).onSnapshot(snap=>{
     const list = [];
     snap.forEach(doc => list.push(doc.data()));
-    // Misma salvaguarda: no borrar registros locales de hoy si la nube
-    // aún no los tiene reflejados (por ejemplo, apenas se conectó).
-    if(list.length === 0 && getAttendance(date).length > 0) return;
-    saveAttendance(date, list); // cache local
+    const fromCache = !!(snap.metadata && snap.metadata.fromCache);
+    if(fromCache && list.length === 0) return;
+    if(!fromCache){ cloudLive = true; updateConnectionStatus(); }
+
+    // Aviso cuando OTRA laptop registra una llegada.
+    if(!todayFirstLoad && snap.metadata && !snap.metadata.hasPendingWrites && typeof snap.docChanges === 'function'){
+      snap.docChanges().forEach(c=>{
+        if(c.type === 'added'){
+          const r = c.doc.data();
+          toast(`📥 ${r.ap} — ${seccionKey(r.grado, r.seccion)} — ${r.hora}`);
+        }
+      });
+    }
+    todayFirstLoad = false;
+
+    saveAttendance(date, mergeWithPending(list, date));
     renderAttendanceTable();
+    if((document.getElementById('reportDate').value || date) === date) renderReportStats();
   }, err => console.error('Error escuchando asistencia de hoy:', err));
 }
 
-
-
-
+// Primera vez que se usa un proyecto de Firebase vacío: carga la nómina
+// JOSAFI 2026 incluida (una sola vez; después se puede reemplazar o borrar).
+async function maybeSeedRoster(){
+  if(seedChecked || !db) return;
+  seedChecked = true;
+  try{
+    const doc = await withTimeout(db.collection('config').doc('inicio').get(), 10000);
+    if(doc.exists) return;
+    const ok = await commitStudents({ upsert: PRELOADED_STUDENTS });
+    if(ok) toast(`Se cargó la nómina inicial JOSAFI 2026 (${PRELOADED_STUDENTS.length} estudiantes). Puedes reemplazarla importando tu Excel.`);
+  }catch(err){
+    console.error('No se pudo revisar la nómina inicial:', err);
+  }
+}
 
 /* =========================================================
    CLOCK
@@ -10847,6 +10941,7 @@ function tickClock(){
   if(nowDate !== lastKnownDate){
     lastKnownDate = nowDate;
     if(cloudEnabled) attachTodayListener(); else renderAttendanceTable();
+    renderReportStats();
     toast('Nuevo día detectado: la lista de asistencia en pantalla se reinició. El historial completo sigue guardado en el Excel.');
   }
 }
@@ -10887,6 +10982,7 @@ function fillGradoSelect(sel){
 }
 fillGradoSelect(document.getElementById('inGrado'));
 fillGradoSelect(document.getElementById('printGrado'));
+fillGradoSelect(document.getElementById('edGrado'));
 
 /* =========================================================
    SECTION FILTER (Escanear tab)
@@ -11155,22 +11251,38 @@ function handleDecoded(raw){
   if(raw === lastDecoded.text && (now - lastDecoded.time) < 4000) return; // anti-bounce
   lastDecoded = { text: raw, time: now };
 
-  const data = parseQrPayload(raw);
-  if(!data){ beepError(); showStamp('QR no válido', true); return; }
+  const parsed = parseQrPayload(raw);
+  if(!parsed){ beepError(); showStamp('QR no válido', true); return; }
 
-  if(!data.ap || !data.dni || !data.grado || !data.seccion){
+  const student = resolveStudent(parsed);
+  if(!student){
     beepError();
-    showStamp('Carnet incompleto', true);
+    showStamp('No está en la nómina', true);
+    toast(`El DNI ${parsed.dni} no figura en la nómina de esta laptop. Agrégalo en la pestaña Estudiantes.`, true);
     return;
   }
-  registerAttendance(data);
+  registerAttendance(student);
 }
 
-// Supports the compact "AP|DNI|GRADO|SECCION" format (current cards) and
-// legacy JSON payloads (cards generated by earlier versions of this app).
+// Busca al estudiante en la nómina por DNI (fuente de verdad: nombre, grado
+// y sección siempre actuales). Solo si la nómina de esta laptop está vacía se
+// acepta un carnet antiguo que traiga todos sus datos dentro.
+function resolveStudent(parsed){
+  const roster = getStudents();
+  const found = roster.find(s => String(s.dni) === String(parsed.dni));
+  if(found) return { ap:found.ap, dni:String(found.dni), grado:Number(found.grado), seccion:String(found.seccion).toUpperCase() };
+  if(roster.length === 0 && parsed.ap && parsed.grado && parsed.seccion){
+    return { ap:parsed.ap, dni:String(parsed.dni), grado:Number(parsed.grado), seccion:String(parsed.seccion).toUpperCase() };
+  }
+  return null;
+}
+
+// Acepta: DNI solo (carnets nuevos), "AP|DNI|GRADO|SECCION" y JSON (carnets
+// antiguos generados por versiones anteriores).
 function parseQrPayload(raw){
   if(typeof raw !== 'string') return null;
-  const text = raw.trim();
+  const text = raw.replace(/^\uFEFF/, '').trim();
+  if(/^\d{5,12}$/.test(text)) return { dni:text };   // carnets nuevos: solo el DNI
   if(text.startsWith('{')){
     try{
       const obj = JSON.parse(text);
@@ -11185,6 +11297,26 @@ function parseQrPayload(raw){
   return { ap, dni, grado: Number(grado), seccion: seccion.toUpperCase() };
 }
 
+function feedbackPresent(data, hora, record){
+  beepSuccess();
+  showStamp('Presente', false);
+  setLastScan(data, hora, false);
+  toast(`${data.ap} — ${seccionKey(record.grado, record.seccion)} — ${hora}`);
+}
+function feedbackDuplicate(data, hora){
+  beepDuplicate();
+  showStamp('Ya registrado ' + hora, true);
+  setLastScan(data, hora, true);
+}
+
+let autoSaveTimer = null;
+function scheduleAutoSave(){
+  const t = document.getElementById('autoSaveToggle');
+  if(!t || !t.checked || !folderHandle) return;
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(()=> saveWorkbookToFolder(), 10000);
+}
+
 async function registerAttendance(data){
   const date = todayISO();
   const dni = String(data.dni);
@@ -11192,54 +11324,39 @@ async function registerAttendance(data){
   const hora = now.toLocaleTimeString('es-PE', {hour12:false});
   const record = { ap:data.ap, dni, grado:Number(data.grado), seccion:String(data.seccion).toUpperCase(), fecha: date, hora, timestamp: now.getTime() };
 
-  if(cloudEnabled && db){
-    // La nube es la fuente de verdad: así dos laptops nunca dejan
-    // pasar dos registros del mismo estudiante el mismo día.
-    const docId = `${date}_${dni}`;
-    const docRef = db.collection('asistencia').doc(docId);
+  // Duplicado rápido: la lista de hoy se mantiene al día en tiempo real.
+  const known = getAttendance(date).find(r => String(r.dni) === dni);
+  if(known){ feedbackDuplicate(data, known.hora); return; }
+
+  if(cloudEnabled && db && navigator.onLine){
     try{
-      const existing = await docRef.get();
-      if(existing.exists){
-        const already = existing.data();
-        beepDuplicate();
-        showStamp('Ya registrado ' + already.hora, true);
-        setLastScan(data, already.hora, true);
-        return;
-      }
-      await docRef.set(record);
-      // El listener en tiempo real (attachTodayListener) actualiza la
-      // tabla y el localStorage de respaldo automáticamente.
-      beepSuccess();
-      showStamp('Presente', false);
-      setLastScan(data, hora, false);
-      toast(`${data.ap} — ${seccionKey(record.grado, record.seccion)} — ${hora}`);
+      // Transacción: aunque dos laptops lean el mismo carnet a la vez,
+      // solo se guarda un registro por estudiante por día.
+      const ref = db.collection('asistencia').doc(`${date}_${dni}`);
+      const result = await withTimeout(db.runTransaction(async tx=>{
+        const snap = await tx.get(ref);
+        if(snap.exists) return { dup:true, rec:snap.data() };
+        tx.set(ref, record);
+        return { dup:false, rec:record };
+      }), 8000);
+      if(result.dup){ feedbackDuplicate(data, result.rec.hora); return; }
+      feedbackPresent(data, hora, record);
+      scheduleAutoSave();
       return;
     }catch(err){
-      console.error('Error al registrar en la nube, se guarda solo local:', err);
-      toast('⚠ Sin conexión a la nube en este momento — se guardó solo en esta laptop.', true);
-      // sigue abajo y guarda localmente como respaldo
+      console.error('No se pudo registrar en la nube, queda pendiente:', err);
     }
   }
 
-  // Modo local (sin nube conectada, o falló la escritura en la nube)
+  // Sin internet (o la nube no respondió): se guarda aquí y se envía sola después.
+  addPending(record);
   const list = getAttendance(date);
-  const already = list.find(r => String(r.dni) === dni);
-  if(already){
-    beepDuplicate();
-    showStamp('Ya registrado ' + already.hora, true);
-    setLastScan(data, already.hora, true);
-    return;
-  }
   list.push(record);
   saveAttendance(date, list);
-  beepSuccess();
-  showStamp('Presente', false);
-  setLastScan(data, hora, false);
   renderAttendanceTable();
-  toast(`${data.ap} — ${seccionKey(record.grado, record.seccion)} — ${hora}`);
-  if(document.getElementById('autoSaveToggle').checked && folderHandle){
-    saveWorkbookToFolder();
-  }
+  feedbackPresent(data, hora, record);
+  toast('📴 Sin conexión: la llegada quedó guardada en esta laptop y se enviará sola al volver el internet.', true);
+  scheduleAutoSave();
 }
 
 function setLastScan(data, hora, dup){
@@ -11296,7 +11413,10 @@ function showRosterError(msg){
   if(!el) return;
   el.style.display = 'block';
   el.textContent = '⚠ No se guardó el cambio. ' + msg;
-  toast('⚠ No se guardó el cambio: revisa el aviso rojo arriba.', true);
+  const hint = document.getElementById('edHint');
+  const modal = document.getElementById('editModal');
+  if(hint && modal && modal.style.display !== 'none'){ hint.textContent = '⚠ No se guardó. ' + msg; hint.style.color = 'var(--red)'; }
+  toast('⚠ No se guardó el cambio: ' + msg, true);
 }
 function clearRosterError(){
   const el = document.getElementById('rosterError');
@@ -11334,7 +11454,10 @@ async function commitStudents({ upsert = [], remove = [], replaceAll = false }){
         });
         await withTimeout(batch.commit(), 20000);
       }
-      if(upsert.length) localStorage.setItem(LS_CLOUD_SEEN, '1');
+      if(upsert.length || removeSet.size){
+        // Marca el proyecto como ya iniciado para no recargar la nómina inicial.
+        try{ await withTimeout(db.collection('config').doc('inicio').set({ nomina_inicial:true, actualizado:Date.now() }, { merge:true }), 8000); }catch(e){ /* no es crítico */ }
+      }
     }catch(err){
       console.error('Error guardando la nómina en la nube:', err);
       showRosterError(explainCloudError(err));
@@ -11503,7 +11626,9 @@ function renderRoster(){
   const container = document.getElementById('rosterContainer');
   const groups = allSections();
   container.innerHTML = groups.map(g=>{
-    const rows = students.filter(s=>s.grado===g.grado && s.seccion===g.seccion);
+    const rows = students
+      .filter(s=>s.grado===g.grado && s.seccion===g.seccion)
+      .sort(compareStudents);
     if(rows.length === 0) return '';
     return `
       <div class="roster-group">
@@ -11516,7 +11641,10 @@ function renderRoster(){
                 <tr>
                   <td>${escapeHtml(s.ap)}</td>
                   <td class="mono">${escapeHtml(s.dni)}</td>
-                  <td style="text-align:right;"><button class="btn btn-danger" data-dni="${s.dni}" style="padding:4px 10px;font-size:12px;">Eliminar</button></td>
+                  <td style="text-align:right;white-space:nowrap;">
+                    <button class="btn btn-outline" data-edit="${escapeHtml(s.dni)}" style="padding:4px 10px;font-size:12px;">✎ Editar</button>
+                    <button class="btn btn-danger" data-dni="${escapeHtml(s.dni)}" style="padding:4px 10px;font-size:12px;">Eliminar</button>
+                  </td>
                 </tr>`).join('')}
             </tbody>
           </table>
@@ -11527,25 +11655,131 @@ function renderRoster(){
   container.querySelectorAll('button[data-dni]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const dni = btn.dataset.dni;
-      runBusy(btn, async ()=>{ await commitStudents({ remove:[dni] }); });
+      const s = getStudents().find(x => String(x.dni) === dni);
+      if(!confirm(`¿Eliminar a ${s ? s.ap : dni} de la nómina? Su historial de asistencia ya registrado se conserva en el Excel.`)) return;
+      runBusy(btn, async ()=>{
+        const ok = await commitStudents({ remove:[dni] });
+        if(ok) toast('Estudiante eliminado.');
+      });
     });
   });
+  container.querySelectorAll('button[data-edit]').forEach(btn=>{
+    btn.addEventListener('click', ()=> openEditStudent(btn.dataset.edit));
+  });
 }
+
+/* =========================================================
+   EDITAR ESTUDIANTE
+========================================================= */
+let editingDni = null;
+function openEditStudent(dni){
+  const s = getStudents().find(x => String(x.dni) === String(dni));
+  if(!s) return;
+  editingDni = String(s.dni);
+  document.getElementById('edAp').value = s.ap;
+  document.getElementById('edDni').value = s.dni;
+  document.getElementById('edGrado').value = String(s.grado);
+  document.getElementById('edSeccion').value = s.seccion;
+  const hint = document.getElementById('edHint');
+  hint.style.color = '';
+  hint.textContent = 'Si cambias el DNI, el historial de asistencia de este estudiante se actualiza solo. Los carnets ya impresos con el DNI anterior dejarán de funcionar: vuelve a imprimirlos.';
+  document.getElementById('editModal').style.display = 'flex';
+}
+function closeEditStudent(){
+  document.getElementById('editModal').style.display = 'none';
+  editingDni = null;
+}
+document.getElementById('edCancel').addEventListener('click', closeEditStudent);
+document.getElementById('editModal').addEventListener('click', (e)=>{ if(e.target.id === 'editModal') closeEditStudent(); });
+
+// Mantiene coherente el historial cuando se edita un estudiante (nombre,
+// grado, sección o DNI), en la nube y en las copias locales.
+async function migrateAttendance(oldDni, s){
+  const newDni = String(s.dni);
+  const changedDni = String(oldDni) !== newDni;
+  const patch = (r)=> Object.assign({}, r, { ap:s.ap, dni:newDni, grado:Number(s.grado), seccion:s.seccion });
+
+  for(let i = 0; i < localStorage.length; i++){
+    const key = localStorage.key(i);
+    if(key && key.startsWith(LS_ATT_PREFIX)){
+      try{
+        const list = JSON.parse(localStorage.getItem(key)) || [];
+        if(list.some(r => String(r.dni) === String(oldDni))){
+          localStorage.setItem(key, JSON.stringify(list.map(r => String(r.dni) === String(oldDni) ? patch(r) : r)));
+        }
+      }catch(e){}
+    }
+  }
+  setPending(getPending().map(r => String(r.dni) === String(oldDni) ? patch(r) : r));
+
+  if(cloudEnabled && db){
+    try{
+      const snap = await withTimeout(db.collection('asistencia').where('dni','==',String(oldDni)).get(), 20000);
+      const ops = [];
+      snap.forEach(d=>{
+        const r = d.data();
+        const nr = patch(r);
+        if(changedDni){
+          ops.push({ type:'set', id:`${r.fecha}_${newDni}`, data:nr });
+          ops.push({ type:'delete', id:d.id });
+        }else{
+          ops.push({ type:'set', id:d.id, data:nr });
+        }
+      });
+      for(let i = 0; i < ops.length; i += 400){
+        const batch = db.batch();
+        ops.slice(i, i + 400).forEach(op=>{
+          const ref = db.collection('asistencia').doc(op.id);
+          if(op.type === 'set') batch.set(ref, op.data); else batch.delete(ref);
+        });
+        await withTimeout(batch.commit(), 20000);
+      }
+      pastCache = null;
+    }catch(err){
+      toast('⚠ El estudiante se actualizó, pero no su historial de asistencia: ' + explainCloudError(err), true);
+    }
+  }
+  renderAttendanceTable();
+}
+
+document.getElementById('edSave').addEventListener('click', (ev)=>{
+  const ap = document.getElementById('edAp').value.trim().replace(/\s+/g,' ');
+  const dni = document.getElementById('edDni').value.trim();
+  const grado = Number(document.getElementById('edGrado').value);
+  const seccion = document.getElementById('edSeccion').value;
+  const hint = document.getElementById('edHint');
+  if(!ap || !dni){ hint.style.color = 'var(--red)'; hint.textContent = 'Completa apellidos y nombres, y el DNI.'; return; }
+  const old = getStudents().find(x => String(x.dni) === editingDni);
+  if(!old){ closeEditStudent(); return; }
+  if(dni !== editingDni && getStudents().some(x => String(x.dni) === dni)){
+    hint.style.color = 'var(--red)'; hint.textContent = 'Ya existe otro estudiante con ese DNI.'; return;
+  }
+  const oldDni = editingDni;
+  runBusy(ev.currentTarget, async ()=>{
+    const updated = Object.assign({}, old, { ap, dni, grado, seccion });
+    const ok = await commitStudents({ upsert:[updated], remove: dni !== oldDni ? [oldDni] : [] });
+    if(!ok) return; // el aviso rojo explica el motivo y el cuadro sigue abierto
+    await migrateAttendance(oldDni, updated);
+    closeEditStudent();
+    toast('Estudiante actualizado: ' + ap);
+  });
+});
 
 /* =========================================================
    QR CARD GENERATION / PRINT
 ========================================================= */
 function buildQrPayload(s){
-  // Compact pipe-delimited format: shorter than JSON, so the QR stays
-  // simple and reliable even with long names or accented characters.
-  const ap = String(s.ap).replace(/\|/g, ' ');
-  return `${ap}|${s.dni}|${s.grado}|${s.seccion}`;
+  // El QR lleva SOLO el DNI. Así nunca falla con la "ñ" o las tildes (la
+  // librería de QR codifica mal esos caracteres), el código es más pequeño
+  // y se lee mejor con la cámara. El nombre, grado y sección se toman de la
+  // nómina al escanear, por lo que siempre salen actualizados.
+  return String(s.dni).trim();
 }
 
 document.getElementById('btnPrintCards').addEventListener('click', ()=>{
   const grado = Number(document.getElementById('printGrado').value);
   const seccion = document.getElementById('printSeccion').value;
-  const students = getStudents().filter(s=>s.grado===grado && s.seccion===seccion);
+  const students = getStudents().filter(s=>s.grado===grado && s.seccion===seccion).sort(compareStudents);
   if(students.length === 0){ toast('No hay estudiantes en esa sección.', true); return; }
 
   const previewWrap = document.getElementById('cardPreview');
@@ -11560,7 +11794,7 @@ document.getElementById('btnPrintCards').addEventListener('click', ()=>{
       const qrDiv = document.createElement('div');
       qrDiv.className = 'qr';
       // eslint-disable-next-line no-new
-      new QRCode(qrDiv, { text: buildQrPayload(s), width:130, height:130, correctLevel: QRCode.CorrectLevel.M });
+      new QRCode(qrDiv, { text: buildQrPayload(s), width:130, height:130, correctLevel: QRCode.CorrectLevel.Q });
 
       const info = `<div class="info"><b>${escapeHtml(s.ap)}</b><span>DNI: ${escapeHtml(s.dni)}</span><span>${seccionKey(s.grado,s.seccion)}</span></div>`;
 
@@ -11604,22 +11838,25 @@ async function renderReportStats(){
   const secs = allSections();
 
   let att;
-  if(cloudEnabled && db){
+  if(date === todayISO()){
+    att = getAttendance(date); // hoy: en vivo (se mantiene al día con la nube)
+  }else if(cloudEnabled && db && navigator.onLine){
     try{
-      const snap = await db.collection('asistencia').where('fecha','==',date).get();
+      const snap = await withTimeout(db.collection('asistencia').where('fecha','==',date).get(), 15000);
       att = [];
       snap.forEach(doc => att.push(doc.data()));
     }catch(err){
-      att = getAttendance(date); // respaldo local si falla la consulta
+      att = getAttendance(date);
     }
   }else{
     att = getAttendance(date);
   }
 
+  const presentDnis = new Set(att.map(r => String(r.dni)));
   grid.innerHTML = secs.map(s=>{
-    const total = students.filter(st=>st.grado===s.grado && st.seccion===s.seccion).length;
-    const present = att.filter(r=>r.grado===s.grado && r.seccion===s.seccion).length;
-    return `<div class="stat"><div class="n">${present}/${total}</div><div class="l">${s.key} presentes</div></div>`;
+    const sectionStudents = students.filter(st=>st.grado===s.grado && st.seccion===s.seccion);
+    const present = sectionStudents.filter(st => presentDnis.has(String(st.dni))).length;
+    return `<div class="stat"><div class="n">${present}/${sectionStudents.length}</div><div class="l">${s.key} presentes</div></div>`;
   }).join('');
 }
 document.getElementById('reportDate').value = todayISO();
@@ -11650,16 +11887,26 @@ function getAllAttendanceRecords(){
 // Used for exports/stats: pulls the FULL history from the cloud (all
 // laptops combined) when connected; otherwise falls back to whatever
 // is cached in this laptop's localStorage.
-async function getFullHistoryForExport(){
-  if(cloudEnabled && db){
+async function getFullHistoryForExport(opts){
+  const maxAge = (opts && opts.maxAgeMs) || Infinity;
+  if(cloudEnabled && db && navigator.onLine){
     try{
-      const snap = await db.collection('asistencia').get();
-      const records = [];
-      snap.forEach(doc => records.push(doc.data()));
+      const today = todayISO();
+      const stale = !pastCache || pastCache.day !== today || (Date.now() - pastCache.at) > maxAge;
+      if(stale){
+        // Los días anteriores no cambian: se leen una vez y se reutilizan,
+        // así no se gastan lecturas de la nube cada vez que se actualiza el Excel.
+        const snap = await withTimeout(db.collection('asistencia').get(), 40000);
+        const all = [];
+        snap.forEach(doc => all.push(doc.data()));
+        pastCache = { day: today, at: Date.now(), records: all.filter(r => r.fecha < today) };
+      }
+      const todays = getAttendance(today).map(r => Object.assign({ fecha: today }, r));
+      const records = pastCache.records.concat(todays);
       const dates = Array.from(new Set(records.map(r => r.fecha))).sort();
       return { dates, records };
     }catch(err){
-      toast('⚠ No se pudo leer el historial completo de la nube, se usará el respaldo guardado en esta laptop: ' + err.message, true);
+      toast('⚠ No se pudo leer el historial completo de la nube, se usará el respaldo guardado en esta laptop: ' + explainCloudError(err), true);
     }
   }
   return { dates: getAllStoredDates(), records: getAllAttendanceRecords() };
@@ -11676,53 +11923,54 @@ function formatFechaDisplay(dateISO){
 // date is written only once per block (merged down the whole column)
 // while the arrival time is written individually for each student.
 function buildSectionSheet(sec, allRecords, dateList){
-  let students = getStudents()
+  const roster = getStudents();
+  const rosterDnis = new Set(roster.map(s => String(s.dni)));
+  let students = roster
     .filter(s => s.grado === sec.grado && s.seccion === sec.seccion)
     .slice()
-    .sort((a,b)=> a.ap.localeCompare(b.ap, 'es'));
+    .sort(compareStudents);
+  const sectionDnis = new Set(students.map(s => String(s.dni)));
 
-  // Also include any historic attendance from students no longer in the
-  // current roster (renamed/removed), so no past record is ever lost.
-  const rosterDnis = new Set(students.map(s=>s.dni));
+  // Historial de estudiantes que ya no están en la nómina (eliminados):
+  // se conserva al final de la hoja de la sección donde asistían.
   const strayDnis = new Set();
   allRecords
-    .filter(r => r.grado === sec.grado && r.seccion === sec.seccion && !rosterDnis.has(r.dni))
+    .filter(r => !rosterDnis.has(String(r.dni)) && r.grado === sec.grado && r.seccion === sec.seccion)
     .forEach(r=>{
-      if(!strayDnis.has(r.dni)){
-        strayDnis.add(r.dni);
-        students.push({ ap: r.ap, dni: r.dni, grado: sec.grado, seccion: sec.seccion });
+      if(!strayDnis.has(String(r.dni))){
+        strayDnis.add(String(r.dni));
+        sectionDnis.add(String(r.dni));
+        students.push({ ap: r.ap + ' (fuera de la nómina)', dni: r.dni, grado: sec.grado, seccion: sec.seccion });
       }
     });
 
-  // Una sola fila de encabezado: cada día es directamente su fecha
-  // como título de columna (sin fila combinada adicional).
+  // Una sola fila de encabezado: cada día es directamente su fecha.
   const header = ['N°', 'Apellidos y Nombres', 'DNI', ...dateList.map(d => formatFechaDisplay(d))];
-
   const aoa = [header];
+  let total = 0;
 
   if(students.length === 0){
     aoa.push([ '', '(sin estudiantes registrados en esta sección)', '', ...dateList.map(()=>'') ]);
   }else{
-    // Pre-index: date -> dni -> hora
     const byDateDni = {};
     dateList.forEach(d => byDateDni[d] = {});
     allRecords
-      .filter(r => r.grado === sec.grado && r.seccion === sec.seccion)
-      .forEach(r => { if(byDateDni[r.fecha]) byDateDni[r.fecha][r.dni] = r.hora; });
+      .filter(r => sectionDnis.has(String(r.dni)))
+      .forEach(r => { if(byDateDni[r.fecha]){ byDateDni[r.fecha][String(r.dni)] = r.hora; total++; } });
 
     students.forEach((s, idx) => {
       const row = [idx+1, s.ap, s.dni];
-      dateList.forEach(d => row.push(byDateDni[d][s.dni] || ''));
+      dateList.forEach(d => row.push(byDateDni[d][String(s.dni)] || ''));
       aoa.push(row);
     });
   }
 
   const sheet = XLSX.utils.aoa_to_sheet(aoa);
   sheet['!cols'] = [
-    {wch:5}, {wch:32}, {wch:12},
+    {wch:5}, {wch:34}, {wch:12},
     ...dateList.map(()=> ({wch:11}))
   ];
-  return { sheet };
+  return { sheet, total };
 }
 
 async function buildWorkbook(history){
@@ -11731,10 +11979,9 @@ async function buildWorkbook(history){
   const summaryRows = [];
 
   allSections().forEach(sec=>{
-    const { sheet } = buildSectionSheet(sec, allRecords, dateList);
+    const { sheet, total } = buildSectionSheet(sec, allRecords, dateList);
     XLSX.utils.book_append_sheet(wb, sheet, sec.key.replace('°',''));
-    const totalRegistros = allRecords.filter(r => r.grado === sec.grado && r.seccion === sec.seccion).length;
-    summaryRows.push({ 'Sección': sec.key, 'Total de registros (todas las fechas)': totalRegistros });
+    summaryRows.push({ 'Sección': sec.key, 'Total de registros (todas las fechas)': total });
   });
 
   const summarySheet = XLSX.utils.json_to_sheet(summaryRows, { origin: 0 });
@@ -11750,7 +11997,7 @@ async function buildWorkbook(history){
 
 document.getElementById('btnDownloadXlsx').addEventListener('click', async ()=>{
   toast('Generando Excel' + (cloudEnabled ? ' con el historial de todas las laptops...' : '...'));
-  const history = await getFullHistoryForExport();
+  const history = await getFullHistoryForExport({ maxAgeMs: 10 * 60 * 1000 });
   const wb = await buildWorkbook(history);
   const dates = history.dates;
   const label = dates.length ? `${dates[0]}_a_${dates[dates.length-1]}` : todayISO();
@@ -11817,29 +12064,8 @@ checkLibraries();
 renderRoster();
 renderReportStats();
 
-// Configuración del proyecto de Firebase de la IE "José Santos Figueroa".
-// Queda incrustada aquí para que cualquier laptop que abra este mismo
-// archivo/enlace se conecte automáticamente, sin que nadie tenga que configurar nada.
-const DEFAULT_CLOUD_CONFIG = {
-  apiKey: "AIzaSyDr-75TNReW-aXFYhBnJepzlXimYMo3pv8",
-  authDomain: "asistencia-josafi.firebaseapp.com",
-  projectId: "asistencia-josafi",
-  storageBucket: "asistencia-josafi.firebasestorage.app",
-  messagingSenderId: "597243209802",
-  appId: "1:597243209802:web:07b12649bacc0fcf2fdeb3"
-};
-
-// Auto-conectar a la nube: usa la configuración guardada en esta laptop
-// si existe, y si no, la del colegio incrustada arriba.
-(function initCloud(){
-  const cfg = getCloudConfig() || DEFAULT_CLOUD_CONFIG;
-  connectCloud(cfg, true).then(ok=>{
-    if(ok){
-      saveCloudConfig(cfg);
-      renderReportStats();
-    }
-  });
-})();
+// Conexión automática y en tiempo real con la nube (sin configurar nada).
+startCloud();
 </script>
 </body>
 </html>
