@@ -10566,6 +10566,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   <section class="view" id="view-estudiantes">
     <h2 class="section-title">Estudiantes y carnets QR</h2>
     <p class="section-sub">Registra a los estudiantes y genera su carnet con código QR para imprimir.</p>
+    <div class="lib-warning" id="rosterError" style="display:none;"></div>
 
     <div class="grid-2">
       <div class="card">
@@ -10605,7 +10606,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <input type="file" id="importExcelFile" accept=".xlsx,.xls" style="flex:1;min-width:180px;">
           <button class="btn btn-primary" id="btnImportExcel">📥 Importar Excel</button>
         </div>
+        <label style="display:flex;align-items:flex-start;gap:8px;margin-top:10px;font-size:13px;">
+          <input type="checkbox" id="importReplace" style="margin-top:3px;">
+          <span>Reemplazar toda la nómina actual (borra la lista anterior y deja solo la del archivo). Si no lo marcas, solo se agregan o actualizan estudiantes.</span>
+        </label>
         <p class="hint" id="importResult"></p>
+
+        <hr style="border:none;border-top:1px solid var(--line);margin:22px 0;">
+
+        <strong style="font-family:var(--display);color:var(--navy);font-size:14px;">Mantenimiento de la nómina</strong>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+          <button class="btn btn-outline" id="btnRestoreJosafi">↺ Cargar nómina JOSAFI 2026 incluida</button>
+          <button class="btn btn-danger" id="btnDeleteAllStudents">🗑 Eliminar toda la nómina</button>
+        </div>
       </div>
 
       <div class="card">
@@ -10691,6 +10704,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <p class="hint">Solo en la <b>primera</b> laptop que conectes, sube tu lista de estudiantes y el historial local a la nube, para que las demás laptops ya lo encuentren ahí. No lo repitas en las otras laptops (crearía duplicados).</p>
         <button class="btn btn-outline" id="btnUploadLocalToCloud">☁ Subir mi lista y mi historial local a la nube</button>
         <p class="hint" id="uploadResult"></p>
+
+        <hr style="border:none;border-top:1px solid var(--line);margin:20px 0;">
+        <strong style="font-family:var(--display);color:var(--navy);font-size:14px;">3. Probar que la nube permite guardar y borrar</strong>
+        <p class="hint">Si al agregar o borrar estudiantes los cambios no se mantienen, usa esta prueba: te dice si Firebase está rechazando los cambios.</p>
+        <button class="btn btn-outline" id="btnCloudTest">🔍 Probar escritura en la nube</button>
+        <p class="hint" id="cloudTestResult"></p>
       </div>
 
       <div class="card">
@@ -10758,6 +10777,7 @@ function saveAttendance(dateISO, list){ localStorage.setItem(LS_ATT_PREFIX+dateI
    conectado, todo sigue funcionando solo con localStorage.
 ========================================================= */
 const LS_CLOUD_CFG = 'ieqr_cloud_config';
+const LS_CLOUD_SEEN = 'ieqr_cloud_has_roster';
 let cloudEnabled = false;
 let db = null;
 let unsubStudents = null;
@@ -10843,12 +10863,17 @@ function attachCloudListeners(){
     const cloudList = [];
     snap.forEach(doc => cloudList.push(doc.data()));
 
-    // Salvaguarda: si la nube todavía no tiene estudiantes pero esta
-    // laptop sí tiene una lista local, NUNCA se sobrescribe con vacío.
-    // Esto evita perder datos si aún no se hizo la subida inicial.
-    if(cloudList.length === 0 && getStudents().length > 0){
-      setCloudStatus('⚠ Conectado, pero la nube todavía no tiene estudiantes. Usa "Subir mi lista y mi historial local a la nube" en esta laptop para no perder tu lista.', true);
-      return;
+    // Salvaguardas para no borrar la lista local por error:
+    // 1) Datos que solo vienen de la caché sin conexión y están vacíos: se ignoran.
+    if(cloudList.length === 0 && snap.metadata && snap.metadata.fromCache){ return; }
+    // 2) La nube nunca tuvo estudiantes y esta laptop sí: se conserva la lista local.
+    if(cloudList.length === 0){
+      if(getStudents().length > 0 && localStorage.getItem(LS_CLOUD_SEEN) !== '1'){
+        setCloudStatus('⚠ Conectado, pero la nube todavía no tiene estudiantes. Usa "Subir mi lista y mi historial local a la nube" en esta laptop para no perder tu lista.', true);
+        return;
+      }
+    }else{
+      localStorage.setItem(LS_CLOUD_SEEN, '1');
     }
 
     saveStudents(cloudList); // cache local por si se pierde internet
@@ -10884,6 +10909,20 @@ document.getElementById('btnCloudConnect').addEventListener('click', async ()=>{
   if(ok) saveCloudConfig(cfg);
 });
 
+document.getElementById('btnCloudTest').addEventListener('click', async ()=>{
+  const out = document.getElementById('cloudTestResult');
+  if(!cloudEnabled || !db){ out.textContent = 'Primero conéctate a la nube.'; return; }
+  out.textContent = 'Probando...';
+  try{
+    const ref = db.collection('_diagnostico').doc('prueba');
+    await withTimeout(ref.set({ ok:true, t:Date.now() }), 10000);
+    await withTimeout(ref.delete(), 10000);
+    out.textContent = '✅ La nube permite guardar y borrar. Los cambios en la nómina se mantendrán.';
+  }catch(err){
+    out.textContent = '❌ ' + explainCloudError(err);
+  }
+});
+
 document.getElementById('btnCloudDisconnect').addEventListener('click', ()=>{
   disconnectCloud();
 });
@@ -10916,6 +10955,7 @@ document.getElementById('btnUploadLocalToCloud').addEventListener('click', async
     if(opCount > 0) await batch.commit();
 
     result.textContent = `Listo: ${students.length} estudiante(s) y ${allRecords.length} registro(s) de asistencia subidos a la nube.`;
+    localStorage.setItem(LS_CLOUD_SEEN, '1');
     toast('Subida completa.');
   }catch(err){
     result.textContent = 'Error al subir: ' + err.message;
@@ -11372,60 +11412,143 @@ document.getElementById('manualDni').addEventListener('keydown', (e)=>{
 /* =========================================================
    STUDENTS: ADD / BULK ADD
 ========================================================= */
-function cloudSaveStudent(s){
-  if(cloudEnabled && db){
-    db.collection('estudiantes').doc(String(s.dni)).set(s)
-      .catch(err => toast('⚠ No se pudo guardar en la nube (' + err.message + '), quedó solo local.', true));
+function explainCloudError(err){
+  const code = err && err.code ? err.code : '';
+  const msg = (err && err.message) ? err.message : String(err);
+  if(code === 'permission-denied' || /permission|insufficient/i.test(msg)){
+    return 'Firebase está rechazando los cambios (permisos). Entra a Firebase → Firestore Database → pestaña Reglas, deja "allow read, write: if true;" dentro de match /{document=**} y pulsa Publicar.';
   }
+  if(code === 'unavailable' || msg === 'timeout'){
+    return 'No hay respuesta de la nube en este momento. Revisa el internet de esta laptop e intenta de nuevo.';
+  }
+  return msg;
 }
-function cloudDeleteStudent(dni){
-  if(cloudEnabled && db){
-    db.collection('estudiantes').doc(String(dni)).delete()
-      .catch(err => toast('⚠ No se pudo eliminar en la nube: ' + err.message, true));
-  }
+function showRosterError(msg){
+  const el = document.getElementById('rosterError');
+  if(!el) return;
+  el.style.display = 'block';
+  el.textContent = '⚠ No se guardó el cambio. ' + msg;
+  toast('⚠ No se guardó el cambio: revisa el aviso rojo arriba.', true);
+}
+function clearRosterError(){
+  const el = document.getElementById('rosterError');
+  if(el) el.style.display = 'none';
+}
+function withTimeout(promise, ms){
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('timeout'), { code:'unavailable' })), ms))
+  ]);
 }
 
-document.getElementById('btnAddStudent').addEventListener('click', ()=>{
+// ÚNICO punto de escritura de la nómina. Si hay nube conectada, primero
+// guarda allí y ESPERA la confirmación; solo si la nube acepta el cambio se
+// actualiza la lista local. Así nada reaparece ni desaparece "solo".
+async function commitStudents({ upsert = [], remove = [], replaceAll = false }){
+  upsert = upsert.map(s => Object.assign({}, s, { dni: String(s.dni) }));
+  const upsertDnis = new Set(upsert.map(s => s.dni));
+  const removeSet = new Set(remove.map(String));
+
+  if(cloudEnabled && db){
+    try{
+      if(replaceAll){
+        const snap = await withTimeout(db.collection('estudiantes').get(), 15000);
+        snap.forEach(d => { if(!upsertDnis.has(d.id)) removeSet.add(d.id); });
+      }
+      const ops = [];
+      upsert.forEach(s => ops.push({ type:'set', id:s.dni, data:s }));
+      removeSet.forEach(id => { if(!upsertDnis.has(id)) ops.push({ type:'delete', id }); });
+      for(let i = 0; i < ops.length; i += 400){
+        const batch = db.batch();
+        ops.slice(i, i + 400).forEach(op => {
+          const ref = db.collection('estudiantes').doc(op.id);
+          if(op.type === 'set') batch.set(ref, op.data); else batch.delete(ref);
+        });
+        await withTimeout(batch.commit(), 20000);
+      }
+      if(upsert.length) localStorage.setItem(LS_CLOUD_SEEN, '1');
+    }catch(err){
+      console.error('Error guardando la nómina en la nube:', err);
+      showRosterError(explainCloudError(err));
+      renderRoster();
+      return false;
+    }
+  }
+
+  const base = replaceAll ? [] : getStudents().filter(s => !removeSet.has(String(s.dni)));
+  const map = new Map(base.map(s => [String(s.dni), s]));
+  upsert.forEach(s => map.set(s.dni, s));
+  saveStudents(Array.from(map.values()));
+  clearRosterError();
+  renderRoster();
+  renderReportStats();
+  return true;
+}
+
+async function runBusy(btn, fn){
+  if(btn) btn.disabled = true;
+  try{ return await fn(); }
+  finally{ if(btn) btn.disabled = false; }
+}
+
+document.getElementById('btnAddStudent').addEventListener('click', (ev)=>{
+  const btn = ev.currentTarget;
   const ap = document.getElementById('inAp').value.trim();
   const dni = document.getElementById('inDni').value.trim();
   const grado = Number(document.getElementById('inGrado').value);
   const seccion = document.getElementById('inSeccion').value;
   if(!ap || !dni){ toast('Completa apellidos, nombres y DNI.', true); return; }
-  const students = getStudents();
-  if(students.find(s=>s.dni === dni)){ toast('Ya existe un estudiante con ese DNI.', true); return; }
-  const newStudent = { ap, dni, grado, seccion };
-  students.push(newStudent);
-  saveStudents(students);
-  cloudSaveStudent(newStudent);
-  document.getElementById('inAp').value = '';
-  document.getElementById('inDni').value = '';
-  toast('Estudiante agregado: ' + ap);
-  renderRoster();
+  if(getStudents().find(s => String(s.dni) === dni)){ toast('Ya existe un estudiante con ese DNI.', true); return; }
+  runBusy(btn, async ()=>{
+    const ok = await commitStudents({ upsert:[{ ap, dni, grado, seccion }] });
+    if(ok){
+      document.getElementById('inAp').value = '';
+      document.getElementById('inDni').value = '';
+      toast('Estudiante agregado: ' + ap);
+    }
+  });
 });
 
-document.getElementById('btnBulkAdd').addEventListener('click', ()=>{
+document.getElementById('btnBulkAdd').addEventListener('click', (ev)=>{
+  const btn = ev.currentTarget;
   const raw = document.getElementById('bulkInput').value.trim();
   if(!raw) return;
-  const students = getStudents();
-  let added = 0, skipped = 0;
-  const newOnes = [];
+  const existing = new Set(getStudents().map(s => String(s.dni)));
+  const list = [];
+  let invalid = 0;
   raw.split('\n').forEach(line=>{
     if(!line.trim()) return;
-    const parts = line.split(',').map(p=>p.trim());
-    if(parts.length < 4) { skipped++; return; }
+    const parts = line.split(',').map(p => p.trim());
+    if(parts.length < 4){ invalid++; return; }
     const [ap, dni, grado, seccion] = parts;
-    if(!ap || !dni || !grado || !seccion){ skipped++; return; }
-    if(students.find(s=>s.dni === dni)){ skipped++; return; }
-    const s = { ap, dni, grado:Number(grado), seccion: seccion.toUpperCase() };
-    students.push(s);
-    newOnes.push(s);
-    added++;
+    if(!ap || !dni || !grado || !seccion){ invalid++; return; }
+    list.push({ ap, dni, grado:Number(grado), seccion:seccion.toUpperCase() });
   });
-  saveStudents(students);
-  newOnes.forEach(cloudSaveStudent);
-  document.getElementById('bulkInput').value = '';
-  toast(`${added} estudiante(s) agregados. ${skipped} omitidos.`);
-  renderRoster();
+  if(list.length === 0){ toast('No se encontró ninguna línea válida.', true); return; }
+  runBusy(btn, async ()=>{
+    const ok = await commitStudents({ upsert:list });
+    if(ok){
+      const nuevos = list.filter(s => !existing.has(String(s.dni))).length;
+      document.getElementById('bulkInput').value = '';
+      toast(`${nuevos} nuevo(s), ${list.length - nuevos} actualizado(s), ${invalid} línea(s) inválida(s).`);
+    }
+  });
+});
+
+document.getElementById('btnDeleteAllStudents').addEventListener('click', (ev)=>{
+  const total = getStudents().length;
+  if(!confirm(`Se eliminarán TODOS los estudiantes de la nómina (${total})${cloudEnabled ? ' en todas las laptops conectadas' : ''}. El historial de asistencia ya registrado no se borra. ¿Continuar?`)) return;
+  runBusy(ev.currentTarget, async ()=>{
+    const ok = await commitStudents({ replaceAll:true, upsert:[] });
+    if(ok) toast('Nómina eliminada por completo.');
+  });
+});
+
+document.getElementById('btnRestoreJosafi').addEventListener('click', (ev)=>{
+  runBusy(ev.currentTarget, async ()=>{
+    const ok = await commitStudents({ upsert: PRELOADED_STUDENTS });
+    if(ok) toast(`Nómina JOSAFI 2026 cargada (${PRELOADED_STUDENTS.length} estudiantes).`);
+  });
 });
 
 /* =========================================================
@@ -11464,36 +11587,42 @@ function parseRosterWorkbook(wb){
   return students;
 }
 
-document.getElementById('btnImportExcel').addEventListener('click', ()=>{
+document.getElementById('btnImportExcel').addEventListener('click', (ev)=>{
+  const btn = ev.currentTarget;
   const fileInput = document.getElementById('importExcelFile');
   const file = fileInput.files[0];
   if(!file){ toast('Selecciona un archivo Excel primero.', true); return; }
   const reader = new FileReader();
   reader.onload = (e)=>{
+    let imported;
     try{
       const wb = XLSX.read(new Uint8Array(e.target.result), { type:'array' });
-      const imported = parseRosterWorkbook(wb);
-      if(imported.length === 0){
-        document.getElementById('importResult').textContent = 'No se detectaron estudiantes. Verifica el formato del archivo.';
-        return;
-      }
-      const students = getStudents();
-      let added = 0, skipped = 0;
-      const newOnes = [];
-      imported.forEach(s=>{
-        if(students.find(x => x.dni === s.dni)){ skipped++; return; }
-        students.push(s);
-        newOnes.push(s);
-        added++;
-      });
-      saveStudents(students);
-      newOnes.forEach(cloudSaveStudent);
-      document.getElementById('importResult').textContent = `${added} estudiante(s) importados, ${skipped} ya existían (omitidos).`;
-      toast(`Nómina importada: ${added} estudiante(s) agregados.`);
-      renderRoster();
+      imported = parseRosterWorkbook(wb);
     }catch(err){
       toast('No se pudo leer el archivo: ' + err.message, true);
+      return;
     }
+    const result = document.getElementById('importResult');
+    if(imported.length === 0){
+      result.textContent = 'No se detectaron estudiantes. Verifica el formato del archivo.';
+      return;
+    }
+    // Quita DNI repetidos dentro del mismo archivo (queda el último).
+    const unique = Array.from(new Map(imported.map(s => [String(s.dni), s])).values());
+    const replace = document.getElementById('importReplace').checked;
+    const current = getStudents().length;
+    if(replace && !confirm(`Se reemplazará TODA la nómina actual (${current} estudiantes) por los ${unique.length} del archivo. ¿Continuar?`)) return;
+    const existing = new Set(getStudents().map(s => String(s.dni)));
+    runBusy(btn, async ()=>{
+      const ok = await commitStudents({ upsert:unique, replaceAll:replace });
+      if(!ok){ result.textContent = 'No se importó nada: revisa el aviso rojo.'; return; }
+      const nuevos = unique.filter(s => !existing.has(String(s.dni))).length;
+      const secciones = new Set(unique.map(s => s.grado + s.seccion)).size;
+      result.textContent = replace
+        ? `Nómina reemplazada: ${unique.length} estudiantes en ${secciones} secciones.`
+        : `${nuevos} nuevo(s) y ${unique.length - nuevos} actualizado(s), en ${secciones} secciones.`;
+      toast('Nómina importada correctamente.');
+    });
   };
   reader.readAsArrayBuffer(file);
 });
@@ -11525,15 +11654,12 @@ function renderRoster(){
           </table>
         </div>
       </div>`;
-  }).join('') || '<p class="hint">Todavía no hay estudiantes registrados.</p>';
+  }).join('') || '<p class="hint">Todavía no hay estudiantes registrados. Importa tu nómina en Excel, agrégalos a mano, o usa "Cargar nómina JOSAFI 2026 incluida".</p>';
 
   container.querySelectorAll('button[data-dni]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const dni = btn.dataset.dni;
-      const students = getStudents().filter(s=>s.dni !== dni);
-      saveStudents(students);
-      cloudDeleteStudent(dni);
-      renderRoster();
+      runBusy(btn, async ()=>{ await commitStudents({ remove:[dni] }); });
     });
   });
 }
@@ -11814,9 +11940,9 @@ const PRELOADED_STUDENTS = [{"ap": "ATAUCHI PACHECO, ISMAEL", "dni": "62948229",
 /* =========================================================
    INIT
 ========================================================= */
-if(getStudents().length === 0 && PRELOADED_STUDENTS.length > 0){
-  saveStudents(PRELOADED_STUDENTS);
-}
+// La nómina precargada ya NO se vuelve a cargar sola cuando la lista queda vacía
+// (eso hacía reaparecer a estudiantes borrados). Se carga solo con el botón
+// "Cargar nómina JOSAFI 2026 incluida" en la pestaña Estudiantes.
 
 navigator.mediaDevices?.getUserMedia({video:true}).then(s=>{ s.getTracks().forEach(t=>t.stop()); listCameras(); }).catch(()=>{ listCameras(); });
 checkLibraries();
