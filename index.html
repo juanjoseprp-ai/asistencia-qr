@@ -10503,7 +10503,6 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   <button class="tab-btn active" data-view="escanear">Escanear</button>
   <button class="tab-btn" data-view="estudiantes">Estudiantes</button>
   <button class="tab-btn" data-view="reportes">Reportes / Excel</button>
-  <button class="tab-btn" data-view="sync">Sincronización</button>
 </nav>
 
 <main>
@@ -10676,58 +10675,6 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     </div>
   </section>
 
-  <!-- ===================== SINCRONIZACIÓN ===================== -->
-  <section class="view" id="view-sync">
-    <h2 class="section-title">Sincronización entre laptops</h2>
-    <p class="section-sub">Este archivo ya viene conectado automáticamente a la base de datos en la nube de la IE "José Santos Figueroa" — cualquier laptop que abra este mismo enlace se sincroniza sola, sin configurar nada. Este panel es solo por si en el futuro necesitas cambiar de proyecto o desconectar.</p>
-
-    <div class="grid-2">
-      <div class="card">
-        <strong style="font-family:var(--display);color:var(--navy);font-size:14px;">1. Conectar esta laptop</strong>
-        <p class="hint">Pega aquí los datos de tu proyecto de Firebase (ver instrucciones a la derecha). Solo se hace una vez por laptop.</p>
-        <div class="form-row" style="margin-top:10px;">
-          <div class="full"><label>apiKey</label><input type="text" id="cfgApiKey" placeholder="AIza..."></div>
-          <div class="full"><label>authDomain</label><input type="text" id="cfgAuthDomain" placeholder="tuproyecto.firebaseapp.com"></div>
-          <div class="full"><label>projectId</label><input type="text" id="cfgProjectId" placeholder="tuproyecto"></div>
-          <div class="full"><label>storageBucket</label><input type="text" id="cfgStorageBucket" placeholder="tuproyecto.appspot.com"></div>
-          <div><label>messagingSenderId</label><input type="text" id="cfgSenderId" placeholder="123456789"></div>
-          <div><label>appId</label><input type="text" id="cfgAppId" placeholder="1:123:web:abc"></div>
-        </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;">
-          <button class="btn btn-primary" id="btnCloudConnect">🔗 Conectar</button>
-          <button class="btn btn-danger" id="btnCloudDisconnect">Desconectar (usar solo local)</button>
-        </div>
-        <div class="folder-status" style="margin-top:12px;"><span class="dot" id="cloudDot"></span><span id="cloudStatus">No conectado — trabajando solo en esta laptop.</span></div>
-
-        <hr style="border:none;border-top:1px solid var(--line);margin:20px 0;">
-        <strong style="font-family:var(--display);color:var(--navy);font-size:14px;">2. Primera vez: subir tu lista actual</strong>
-        <p class="hint">Solo en la <b>primera</b> laptop que conectes, sube tu lista de estudiantes y el historial local a la nube, para que las demás laptops ya lo encuentren ahí. No lo repitas en las otras laptops (crearía duplicados).</p>
-        <button class="btn btn-outline" id="btnUploadLocalToCloud">☁ Subir mi lista y mi historial local a la nube</button>
-        <p class="hint" id="uploadResult"></p>
-
-        <hr style="border:none;border-top:1px solid var(--line);margin:20px 0;">
-        <strong style="font-family:var(--display);color:var(--navy);font-size:14px;">3. Probar que la nube permite guardar y borrar</strong>
-        <p class="hint">Si al agregar o borrar estudiantes los cambios no se mantienen, usa esta prueba: te dice si Firebase está rechazando los cambios.</p>
-        <button class="btn btn-outline" id="btnCloudTest">🔍 Probar escritura en la nube</button>
-        <p class="hint" id="cloudTestResult"></p>
-      </div>
-
-      <div class="card">
-        <strong style="font-family:var(--display);color:var(--navy);font-size:14px;">Cómo crear tu proyecto gratis (10 min, una sola vez)</strong>
-        <ol style="font-size:13px;color:var(--ink-soft);padding-left:18px;line-height:1.7;">
-          <li>Entra a <span class="mono">console.firebase.google.com</span> con una cuenta de Google y crea un proyecto nuevo (dale cualquier nombre, ej. "asistencia-josafi").</li>
-          <li>En el menú izquierdo, entra a <b>Compilación → Firestore Database</b> → "Crear base de datos" → modo <b>producción</b> → elige una ubicación cercana (ej. <span class="mono">southamerica-east1</span>).</li>
-          <li>Ve a la pestaña <b>Reglas</b> de Firestore y pega esto (acceso abierto solo para uso interno del colegio):
-            <br><span class="mono" style="display:block;background:#F7F8FA;padding:8px;border-radius:6px;margin-top:6px;">allow read, write: if true;</span>
-          </li>
-          <li>Ve a ⚙️ <b>Configuración del proyecto</b> (el engranaje arriba a la izquierda) → baja hasta "Tus apps" → clic en el ícono <span class="mono">&lt;/&gt;</span> (Web) → regístrala con cualquier nombre.</li>
-          <li>Copia los valores que te muestra (<span class="mono">apiKey, authDomain, projectId</span>, etc.) y pégalos en el formulario de la izquierda.</li>
-          <li>Repite <b>solo el paso de pegar esos mismos datos</b> (no crear otro proyecto) en cada laptop del colegio.</li>
-        </ol>
-        <p class="hint">Es gratis para este volumen de uso (el plan gratuito de Firebase alcanza sin problema para un colegio). No pide tarjeta de crédito para el plan gratuito.</p>
-      </div>
-    </div>
-  </section>
 
 </main>
 
@@ -10796,25 +10743,6 @@ function setCloudStatus(text, on){
   if(status) status.textContent = text;
 }
 
-function readCloudConfigForm(){
-  return {
-    apiKey: document.getElementById('cfgApiKey').value.trim(),
-    authDomain: document.getElementById('cfgAuthDomain').value.trim(),
-    projectId: document.getElementById('cfgProjectId').value.trim(),
-    storageBucket: document.getElementById('cfgStorageBucket').value.trim(),
-    messagingSenderId: document.getElementById('cfgSenderId').value.trim(),
-    appId: document.getElementById('cfgAppId').value.trim(),
-  };
-}
-function fillCloudConfigForm(cfg){
-  if(!cfg) return;
-  document.getElementById('cfgApiKey').value = cfg.apiKey || '';
-  document.getElementById('cfgAuthDomain').value = cfg.authDomain || '';
-  document.getElementById('cfgProjectId').value = cfg.projectId || '';
-  document.getElementById('cfgStorageBucket').value = cfg.storageBucket || '';
-  document.getElementById('cfgSenderId').value = cfg.messagingSenderId || '';
-  document.getElementById('cfgAppId').value = cfg.appId || '';
-}
 
 async function connectCloud(cfg, silent){
   if(typeof firebase === 'undefined'){
@@ -10899,69 +10827,9 @@ function attachTodayListener(){
   }, err => console.error('Error escuchando asistencia de hoy:', err));
 }
 
-document.getElementById('btnCloudConnect').addEventListener('click', async ()=>{
-  const cfg = readCloudConfigForm();
-  if(!cfg.apiKey || !cfg.projectId || !cfg.appId){
-    toast('Completa al menos apiKey, projectId y appId.', true);
-    return;
-  }
-  const ok = await connectCloud(cfg, false);
-  if(ok) saveCloudConfig(cfg);
-});
 
-document.getElementById('btnCloudTest').addEventListener('click', async ()=>{
-  const out = document.getElementById('cloudTestResult');
-  if(!cloudEnabled || !db){ out.textContent = 'Primero conéctate a la nube.'; return; }
-  out.textContent = 'Probando...';
-  try{
-    const ref = db.collection('_diagnostico').doc('prueba');
-    await withTimeout(ref.set({ ok:true, t:Date.now() }), 10000);
-    await withTimeout(ref.delete(), 10000);
-    out.textContent = '✅ La nube permite guardar y borrar. Los cambios en la nómina se mantendrán.';
-  }catch(err){
-    out.textContent = '❌ ' + explainCloudError(err);
-  }
-});
 
-document.getElementById('btnCloudDisconnect').addEventListener('click', ()=>{
-  disconnectCloud();
-});
 
-document.getElementById('btnUploadLocalToCloud').addEventListener('click', async ()=>{
-  if(!cloudEnabled || !db){ toast('Primero conéctate a la nube.', true); return; }
-  const result = document.getElementById('uploadResult');
-  result.textContent = 'Subiendo, no cierres esta pestaña...';
-  try{
-    const students = getStudents();
-    let batch = db.batch();
-    let opCount = 0;
-    for(const s of students){
-      batch.set(db.collection('estudiantes').doc(String(s.dni)), s);
-      opCount++;
-      if(opCount >= 400){ await batch.commit(); batch = db.batch(); opCount = 0; }
-    }
-    if(opCount > 0) await batch.commit();
-
-    const allRecords = getAllAttendanceRecords();
-    batch = db.batch();
-    opCount = 0;
-    for(const r of allRecords){
-      const docId = `${r.fecha}_${r.dni}`;
-      const { fecha, ...rest } = r;
-      batch.set(db.collection('asistencia').doc(docId), Object.assign({ fecha }, rest));
-      opCount++;
-      if(opCount >= 400){ await batch.commit(); batch = db.batch(); opCount = 0; }
-    }
-    if(opCount > 0) await batch.commit();
-
-    result.textContent = `Listo: ${students.length} estudiante(s) y ${allRecords.length} registro(s) de asistencia subidos a la nube.`;
-    localStorage.setItem(LS_CLOUD_SEEN, '1');
-    toast('Subida completa.');
-  }catch(err){
-    result.textContent = 'Error al subir: ' + err.message;
-    toast('Error al subir: ' + err.message, true);
-  }
-});
 
 /* =========================================================
    CLOCK
@@ -11951,8 +11819,7 @@ renderReportStats();
 
 // Configuración del proyecto de Firebase de la IE "José Santos Figueroa".
 // Queda incrustada aquí para que cualquier laptop que abra este mismo
-// archivo/enlace se conecte automáticamente, sin que nadie tenga que
-// copiar y pegar nada en la pestaña "Sincronización".
+// archivo/enlace se conecte automáticamente, sin que nadie tenga que configurar nada.
 const DEFAULT_CLOUD_CONFIG = {
   apiKey: "AIzaSyDr-75TNReW-aXFYhBnJepzlXimYMo3pv8",
   authDomain: "asistencia-josafi.firebaseapp.com",
@@ -11966,7 +11833,6 @@ const DEFAULT_CLOUD_CONFIG = {
 // si existe, y si no, la del colegio incrustada arriba.
 (function initCloud(){
   const cfg = getCloudConfig() || DEFAULT_CLOUD_CONFIG;
-  fillCloudConfigForm(cfg);
   connectCloud(cfg, true).then(ok=>{
     if(ok){
       saveCloudConfig(cfg);
