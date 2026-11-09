@@ -10325,6 +10325,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   .cloud-pill .dot.on{background:#5EE0A0;box-shadow:0 0 0 3px rgba(94,224,160,.25);}
   .modal-back{position:fixed;inset:0;background:rgba(10,25,15,.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;}
   .modal{background:#fff;border-radius:14px;padding:22px;width:100%;max-width:460px;box-shadow:0 20px 50px rgba(0,0,0,.35);}
+  .estado{display:inline-block;padding:2px 10px;border-radius:999px;font-size:11.5px;font-weight:700;font-family:var(--display);letter-spacing:.2px;}
+  .estado-temprano{background:#E3F4EA;color:#14703B;border:1px solid #BFE3CD;}
+  .estado-tarde{background:#FDEAEA;color:#C42B37;border:1px solid #F5C2C2;}
+  .stamp.late{border-color:var(--red);color:#FF8A92;}
+  .lockico{font-size:11px;margin-left:4px;opacity:.85;}
+  nav.tabs .spacer{flex:1;}
+  nav.tabs button.logout{font-size:12.5px;color:var(--red);padding:12px 10px;}
+  .msg-ok{color:#14703B;} .msg-err{color:var(--red);}
   .lib-warning{
     background:#FDEAEA;
     border:1px solid #F5C2C2;
@@ -10507,8 +10515,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
 <nav class="tabs">
   <button class="tab-btn active" data-view="escanear">Escanear</button>
-  <button class="tab-btn" data-view="estudiantes">Estudiantes</button>
-  <button class="tab-btn" data-view="reportes">Reportes / Excel</button>
+  <button class="tab-btn" data-view="estudiantes" data-locked="1">Estudiantes <span class="lockico">🔒</span></button>
+  <button class="tab-btn" data-view="reportes" data-locked="1">Reportes / Excel <span class="lockico">🔒</span></button>
+  <button class="tab-btn" data-view="admin" data-locked="1">Administrador <span class="lockico">🔒</span></button>
+  <span class="spacer"></span>
+  <button id="btnAdminLogout" class="logout" style="display:none;">🔓 Cerrar sesión de administrador</button>
 </nav>
 
 <main>
@@ -10556,11 +10567,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <strong style="font-family:var(--display);color:var(--navy);font-size:14px;">Asistencia de hoy</strong>
           <span class="mono" id="todayLabel" style="font-size:12px;color:var(--ink-soft);"></span>
         </div>
+        <div class="hint" id="limitInfo" style="margin:-4px 0 10px;"></div>
         <div class="section-filter" id="sectionFilter"></div>
         <div style="max-height:420px;overflow:auto;">
           <table>
-            <thead><tr><th>Hora</th><th>Apellidos y Nombres</th><th>DNI</th><th>Grado y Sección</th></tr></thead>
-            <tbody id="attTableBody"><tr class="empty-row"><td colspan="4">Aún no hay registros hoy.</td></tr></tbody>
+            <thead><tr><th>Hora</th><th>Estado</th><th>Apellidos y Nombres</th><th>DNI</th><th>Grado y Sección</th></tr></thead>
+            <tbody id="attTableBody"><tr class="empty-row"><td colspan="5">Aún no hay registros hoy.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -10607,6 +10619,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
         <strong style="font-family:var(--display);color:var(--navy);font-size:14px;">Importar nómina completa desde Excel</strong>
         <p class="hint">Sube el archivo de lista general (con bloques por sección, ej. "1A - TUTORA: ...") y el sistema detecta grado, sección, apellidos y DNI automáticamente.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px;">
+          <button class="btn btn-outline" id="btnTemplateBlank">⬇ Descargar plantilla en blanco</button>
+          <button class="btn btn-outline" id="btnTemplateCurrent">⬇ Exportar nómina actual (mismo formato)</button>
+        </div>
+        <p class="hint" style="margin-top:0;">La plantilla trae las 10 secciones (1A a 5B) con el mismo formato de tu lista general. Llénala y súbela aquí mismo.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
           <input type="file" id="importExcelFile" accept=".xlsx,.xls" style="flex:1;min-width:180px;">
           <button class="btn btn-primary" id="btnImportExcel">📥 Importar Excel</button>
@@ -10682,6 +10699,38 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   </section>
 
 
+  <!-- ===================== ADMINISTRADOR ===================== -->
+  <section class="view" id="view-admin">
+    <h2 class="section-title">Administrador</h2>
+    <p class="section-sub">Ajustes generales del sistema. Los cambios se aplican en todas las laptops conectadas.</p>
+    <div class="lib-warning" id="admDefaultWarn" style="display:none;">⚠ Estás usando la contraseña inicial. Cámbiala ahora en el recuadro "Cambiar contraseña".</div>
+
+    <div class="grid-2">
+      <div class="card">
+        <strong style="font-family:var(--display);color:var(--navy);font-size:14px;">Horario de ingreso (Temprano / Tarde)</strong>
+        <p class="hint">Elige la hora a partir de la cual el estudiante se considera <b>Tarde</b>. Antes de esa hora aparece <b>Temprano</b>. Ejemplo: con 08:05, una llegada a las 08:04:59 es Temprano y a las 08:05:00 es Tarde.</p>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0;">
+          <label for="admLimite" style="font-size:13px;font-weight:600;">Tarde a partir de:</label>
+          <input type="time" id="admLimite" step="60" value="08:05" style="font-size:16px;">
+          <button class="btn btn-primary" id="btnSaveSchedule">Guardar horario</button>
+        </div>
+        <p class="hint" id="scheduleMsg"></p>
+      </div>
+
+      <div class="card">
+        <strong style="font-family:var(--display);color:var(--navy);font-size:14px;">Cambiar contraseña de administrador</strong>
+        <div class="form-row" style="margin-top:12px;">
+          <div class="full"><label>Contraseña actual</label><input type="password" id="pwCurrent" autocomplete="off" style="width:100%;"></div>
+          <div><label>Nueva contraseña</label><input type="password" id="pwNew" autocomplete="off" style="width:100%;"></div>
+          <div><label>Repetir nueva</label><input type="password" id="pwNew2" autocomplete="off" style="width:100%;"></div>
+        </div>
+        <button class="btn btn-primary" id="btnChangePw">Cambiar contraseña</button>
+        <p class="hint" id="pwMsg"></p>
+        <p class="hint">Mínimo 6 caracteres. Si la olvidas: en Firebase → Firestore Database → colección <span class="mono">config</span> → documento <span class="mono">admin</span> → eliminar. Vuelve la contraseña inicial.</p>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <footer style="text-align:center;padding:18px 12px 28px;color:var(--ink-soft);font-size:12px;">
@@ -10702,6 +10751,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;">
       <button class="btn btn-outline" id="edCancel">Cancelar</button>
       <button class="btn btn-primary" id="edSave">Guardar cambios</button>
+    </div>
+  </div>
+</div>
+<div class="modal-back" id="loginModal" style="display:none;">
+  <div class="modal" style="max-width:380px;">
+    <h3 style="font-family:var(--display);color:var(--navy);margin:0 0 6px;">🔒 Acceso de administrador</h3>
+    <p class="hint" style="margin:0 0 12px;">Esta sección es solo para el administrador. Escribe la contraseña para continuar.</p>
+    <input type="password" id="loginPw" autocomplete="off" placeholder="Contraseña" style="width:100%;font-size:16px;">
+    <p class="hint msg-err" id="loginErr" style="min-height:18px;margin:8px 0 0;"></p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px;">
+      <button class="btn btn-outline" id="loginCancel">Cancelar</button>
+      <button class="btn btn-primary" id="loginOk">Ingresar</button>
     </div>
   </div>
 </div>
@@ -10878,6 +10939,7 @@ function attachCloudListeners(){
     setCloudStatus('Error de nube · ' + explainCloudError(err), false);
   });
   attachTodayListener();
+  attachScheduleListener();
 }
 
 function attachTodayListener(){
@@ -10949,18 +11011,376 @@ setInterval(tickClock, 1000);
 tickClock();
 
 /* =========================================================
-   TABS
+   ADMINISTRADOR: contraseña, horario Temprano/Tarde y plantilla
 ========================================================= */
-document.querySelectorAll('.tab-btn').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById('view-'+btn.dataset.view).classList.add('active');
-    if(btn.dataset.view === 'estudiantes') renderRoster();
-    if(btn.dataset.view === 'reportes') renderReportStats();
+// --- SHA-256 en JavaScript puro (funciona igual en cualquier navegador) ---
+const SHA_K = [], SHA_H0 = [];
+(function(){
+  let n = 0, p = 2;
+  while(n < 64){
+    let prime = true;
+    for(let d = 2; d * d <= p; d++){ if(p % d === 0){ prime = false; break; } }
+    if(prime){
+      if(n < 8) SHA_H0[n] = (Math.pow(p, 1/2) % 1 * 4294967296) | 0;
+      SHA_K[n] = (Math.pow(p, 1/3) % 1 * 4294967296) | 0;
+      n++;
+    }
+    p++;
+  }
+})();
+function shaRor(x, n){ return (x >>> n) | (x << (32 - n)); }
+function sha256Hex(str){
+  const msg = unescape(encodeURIComponent(str));          // texto -> bytes UTF-8
+  const len = msg.length;
+  const blocks = (len + 9 + 63) >> 6;
+  const w = new Array(blocks * 16).fill(0);
+  for(let i = 0; i < len; i++) w[i >> 2] |= msg.charCodeAt(i) << (24 - (i & 3) * 8);
+  w[len >> 2] |= 0x80 << (24 - (len & 3) * 8);
+  w[blocks * 16 - 1] = len * 8;
+  let H = SHA_H0.slice();
+  const W = new Array(64);
+  for(let b = 0; b < blocks; b++){
+    for(let t = 0; t < 16; t++) W[t] = w[b * 16 + t] | 0;
+    for(let t = 16; t < 64; t++){
+      const x = W[t - 15], y = W[t - 2];
+      const s0 = shaRor(x, 7) ^ shaRor(x, 18) ^ (x >>> 3);
+      const s1 = shaRor(y, 17) ^ shaRor(y, 19) ^ (y >>> 10);
+      W[t] = (W[t - 16] + s0 + W[t - 7] + s1) | 0;
+    }
+    let a = H[0], b2 = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], hh = H[7];
+    for(let t = 0; t < 64; t++){
+      const S1 = shaRor(e, 6) ^ shaRor(e, 11) ^ shaRor(e, 25);
+      const ch = (e & f) ^ (~e & g);
+      const t1 = (hh + S1 + ch + SHA_K[t] + W[t]) | 0;
+      const S0 = shaRor(a, 2) ^ shaRor(a, 13) ^ shaRor(a, 22);
+      const maj = (a & b2) ^ (a & c) ^ (b2 & c);
+      const t2 = (S0 + maj) | 0;
+      hh = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b2; b2 = a; a = (t1 + t2) | 0;
+    }
+    H = [(H[0]+a)|0, (H[1]+b2)|0, (H[2]+c)|0, (H[3]+d)|0, (H[4]+e)|0, (H[5]+f)|0, (H[6]+g)|0, (H[7]+hh)|0];
+  }
+  return H.map(x => ('00000000' + (x >>> 0).toString(16)).slice(-8)).join('');
+}
+function hashPassword(pw, salt){
+  let h = sha256Hex(salt + '|' + pw);
+  for(let i = 0; i < 3000; i++) h = sha256Hex(h + '|' + salt + '|' + pw);
+  return h;
+}
+function randomSalt(){
+  let s = '';
+  try{
+    const a = new Uint8Array(12); (window.crypto || window.msCrypto).getRandomValues(a);
+    a.forEach(x => s += ('0' + x.toString(16)).slice(-2));
+  }catch(e){ for(let i = 0; i < 24; i++) s += Math.floor(Math.random() * 16).toString(16); }
+  return s;
+}
+
+const LS_ADMIN = 'ieqr_admin_cred';
+const LS_LOGIN_LOCK = 'ieqr_login_lock';
+// Contraseña inicial (solo se guarda su huella, nunca el texto). Se cambia en Administrador.
+const DEFAULT_ADMIN = { salt:'josafi-adm-v1', hash:'5db8020b0c163ced0cedb2c5ba2e63ac0b0fe7c4fb600a93cf629bb1f29b1d68' };
+const LOCKED_VIEWS = ['estudiantes', 'reportes', 'admin'];
+const ADMIN_IDLE_MS = 10 * 60 * 1000;
+let adminUnlocked = false;
+let adminUsingDefault = false;
+let lastAdminActivity = Date.now();
+let loginAttempts = 0;
+let pendingView = null;
+
+function localAdminCred(){
+  try{
+    const c = JSON.parse(localStorage.getItem(LS_ADMIN));
+    return (c && c.salt && c.hash) ? c : null;
+  }catch(e){ return null; }
+}
+// La contraseña vigente vive en la nube para que sea la misma en todas las laptops.
+async function fetchAdminCred(){
+  if(cloudEnabled && db && navigator.onLine){
+    try{
+      const snap = await withTimeout(db.collection('config').doc('admin').get(), 6000);
+      if(snap.exists){
+        const d = snap.data();
+        if(d && d.salt && d.hash){
+          localStorage.setItem(LS_ADMIN, JSON.stringify({ salt:d.salt, hash:d.hash }));
+          return { salt:d.salt, hash:d.hash, custom:true };
+        }
+      }else{
+        localStorage.removeItem(LS_ADMIN);   // sin contraseña propia en la nube: vale la inicial
+        return Object.assign({ custom:false }, DEFAULT_ADMIN);
+      }
+    }catch(e){ /* sin respuesta de la nube: se usa la copia de esta laptop */ }
+  }
+  const c = localAdminCred();
+  return c ? { salt:c.salt, hash:c.hash, custom:true } : Object.assign({ custom:false }, DEFAULT_ADMIN);
+}
+
+function loginLockRemaining(){
+  const until = Number(localStorage.getItem(LS_LOGIN_LOCK) || 0);
+  return Math.max(0, until - Date.now());
+}
+async function adminLogin(pw){
+  const wait = loginLockRemaining();
+  if(wait > 0) return { ok:false, msg:`Demasiados intentos. Espera ${Math.ceil(wait / 1000)} segundos.` };
+  const cred = await fetchAdminCred();
+  if(hashPassword(pw, cred.salt) === cred.hash){
+    loginAttempts = 0;
+    adminUnlocked = true;
+    adminUsingDefault = !cred.custom;
+    lastAdminActivity = Date.now();
+    updateLockUI();
+    return { ok:true };
+  }
+  loginAttempts++;
+  if(loginAttempts >= 5){
+    loginAttempts = 0;
+    localStorage.setItem(LS_LOGIN_LOCK, String(Date.now() + 30000));
+    return { ok:false, msg:'Contraseña incorrecta. Demasiados intentos: espera 30 segundos.' };
+  }
+  return { ok:false, msg:`Contraseña incorrecta (${5 - loginAttempts} intento(s) restante(s)).` };
+}
+
+function updateLockUI(){
+  document.querySelectorAll('.tab-btn[data-locked]').forEach(b=>{
+    const i = b.querySelector('.lockico'); if(i) i.textContent = adminUnlocked ? '🔓' : '🔒';
+  });
+  const out = document.getElementById('btnAdminLogout');
+  if(out) out.style.display = adminUnlocked ? '' : 'none';
+}
+function lockAdmin(message){
+  const was = adminUnlocked;
+  adminUnlocked = false;
+  adminUsingDefault = false;
+  updateLockUI();
+  closeLogin();
+  if(typeof closeEditStudent === 'function') closeEditStudent();
+  ['pwCurrent','pwNew','pwNew2'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  const active = document.querySelector('.tab-btn.active');
+  if(active && LOCKED_VIEWS.includes(active.dataset.view)) showView('escanear');
+  if(was && message) toast(message);
+}
+function checkAdminIdle(){
+  if(adminUnlocked && Date.now() - lastAdminActivity > ADMIN_IDLE_MS){
+    lockAdmin('🔒 Sesión de administrador cerrada por inactividad.');
+  }
+}
+['click', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, ()=>{ lastAdminActivity = Date.now(); }, true));
+setInterval(checkAdminIdle, 15000);
+
+/* ---- Pantalla de acceso ---- */
+function openLogin(view){
+  pendingView = view;
+  document.getElementById('loginErr').textContent = '';
+  const pw = document.getElementById('loginPw'); pw.value = '';
+  document.getElementById('loginModal').style.display = 'flex';
+  setTimeout(()=> pw.focus(), 30);
+}
+function closeLogin(){
+  const m = document.getElementById('loginModal');
+  if(m) m.style.display = 'none';
+  pendingView = null;
+}
+async function submitLogin(){
+  const input = document.getElementById('loginPw');
+  const err = document.getElementById('loginErr');
+  const btn = document.getElementById('loginOk');
+  if(!input.value){ err.textContent = 'Escribe la contraseña.'; return; }
+  btn.disabled = true; err.textContent = 'Verificando…';
+  let res;
+  try{ res = await adminLogin(input.value); }
+  finally{ btn.disabled = false; }
+  if(!res.ok){ err.textContent = res.msg; input.value = ''; input.focus(); return; }
+  const target = adminUsingDefault ? 'admin' : (pendingView || 'estudiantes');
+  closeLogin();
+  showView(target);
+  if(adminUsingDefault) toast('⚠ Estás usando la contraseña inicial. Cámbiala en esta pantalla.', true);
+}
+document.getElementById('loginOk').addEventListener('click', submitLogin);
+document.getElementById('loginCancel').addEventListener('click', closeLogin);
+document.getElementById('loginPw').addEventListener('keydown', e => { if(e.key === 'Enter') submitLogin(); });
+document.addEventListener('keydown', e => {
+  const m = document.getElementById('loginModal');
+  if(e.key === 'Escape' && m && m.style.display !== 'none') closeLogin();
+});
+document.getElementById('btnAdminLogout').addEventListener('click', ()=> lockAdmin('Sesión de administrador cerrada.'));
+
+/* ---- Horario Temprano / Tarde ---- */
+const LS_HORARIO = 'ieqr_horario';
+function isValidTime(t){ return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(t || '')); }
+let horaLimite = '08:05';
+try{
+  const saved = JSON.parse(localStorage.getItem(LS_HORARIO));
+  if(saved && isValidTime(saved.limite)) horaLimite = saved.limite;
+}catch(e){}
+function limitSeconds(){ const p = horaLimite.split(':').map(Number); return p[0] * 3600 + p[1] * 60; }
+// "A partir de" la hora límite (inclusive) = Tarde.
+function classifyBySeconds(sec){ return sec >= limitSeconds() ? 'Tarde' : 'Temprano'; }
+function classifyByDate(d){ return classifyBySeconds(d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds()); }
+function classifyByHora(hora){
+  const m = /(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(String(hora || ''));
+  if(!m) return 'Temprano';
+  return classifyBySeconds(Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3] || 0));
+}
+// Los registros nuevos ya traen su estado; los antiguos se calculan con el horario actual.
+function estadoOf(r){
+  return (r && (r.estado === 'Tarde' || r.estado === 'Temprano')) ? r.estado : classifyByHora(r && r.hora);
+}
+function estadoBadge(e){ return `<span class="estado estado-${e === 'Tarde' ? 'tarde' : 'temprano'}">${e}</span>`; }
+function updateScheduleUI(){
+  const info = document.getElementById('limitInfo');
+  if(info) info.innerHTML = `Hora límite: desde las <b>${horaLimite}</b> se marca ${estadoBadge('Tarde')}; antes, ${estadoBadge('Temprano')}.`;
+  const inp = document.getElementById('admLimite');
+  if(inp) inp.value = horaLimite;
+  renderAttendanceTable();
+}
+let unsubSchedule = null;
+function attachScheduleListener(){
+  if(!db) return;
+  if(unsubSchedule) unsubSchedule();
+  unsubSchedule = db.collection('config').doc('horario').onSnapshot(snap=>{
+    if(snap && snap.exists){
+      const d = snap.data();
+      if(d && isValidTime(d.limite) && d.limite !== horaLimite){
+        horaLimite = d.limite;
+        localStorage.setItem(LS_HORARIO, JSON.stringify({ limite:horaLimite }));
+        updateScheduleUI();
+      }
+    }
+  }, err => console.error('Error escuchando el horario:', err));
+}
+function setMsg(id, text, ok){
+  const el = document.getElementById(id); if(!el) return;
+  el.textContent = text;
+  el.className = 'hint ' + (ok ? 'msg-ok' : 'msg-err');
+}
+document.getElementById('btnSaveSchedule').addEventListener('click', async (ev)=>{
+  if(!adminUnlocked) return;
+  const v = document.getElementById('admLimite').value;
+  if(!isValidTime(v)){ setMsg('scheduleMsg', 'Elige una hora válida (formato 24 h, ej. 08:05).', false); return; }
+  await runBusy(ev.currentTarget, async ()=>{
+    if(cloudEnabled && db){
+      if(!navigator.onLine){ setMsg('scheduleMsg', 'Sin internet: no se puede guardar el horario para todas las laptops. Inténtalo con conexión.', false); return; }
+      try{ await withTimeout(db.collection('config').doc('horario').set({ limite:v, actualizado:Date.now() }), 8000); }
+      catch(err){ setMsg('scheduleMsg', 'No se guardó: ' + explainCloudError(err), false); return; }
+    }
+    horaLimite = v;
+    localStorage.setItem(LS_HORARIO, JSON.stringify({ limite:v }));
+    updateScheduleUI();
+    setMsg('scheduleMsg', `Guardado: desde las ${v} se marca Tarde.` + (cloudEnabled ? ' Se aplica en todas las laptops.' : ' (Solo en esta laptop: no hay conexión con la nube.)'), true);
   });
 });
+
+/* ---- Cambiar contraseña ---- */
+document.getElementById('btnChangePw').addEventListener('click', async (ev)=>{
+  if(!adminUnlocked) return;
+  const cur = document.getElementById('pwCurrent').value;
+  const n1 = document.getElementById('pwNew').value;
+  const n2 = document.getElementById('pwNew2').value;
+  if(!cur || !n1 || !n2){ setMsg('pwMsg', 'Completa los tres campos.', false); return; }
+  if(n1.length < 6){ setMsg('pwMsg', 'La nueva contraseña debe tener al menos 6 caracteres.', false); return; }
+  if(n1 !== n2){ setMsg('pwMsg', 'La nueva contraseña y su repetición no coinciden.', false); return; }
+  await runBusy(ev.currentTarget, async ()=>{
+    const cred = await fetchAdminCred();
+    if(hashPassword(cur, cred.salt) !== cred.hash){ setMsg('pwMsg', 'La contraseña actual no es correcta.', false); return; }
+    const salt = randomSalt();
+    const hash = hashPassword(n1, salt);
+    if(cloudEnabled && db){
+      if(!navigator.onLine){ setMsg('pwMsg', 'Sin internet: la contraseña debe cambiarse con conexión para que valga en todas las laptops.', false); return; }
+      try{ await withTimeout(db.collection('config').doc('admin').set({ salt, hash, actualizado:Date.now() }), 8000); }
+      catch(err){ setMsg('pwMsg', 'No se cambió: ' + explainCloudError(err), false); return; }
+    }
+    localStorage.setItem(LS_ADMIN, JSON.stringify({ salt, hash }));
+    adminUsingDefault = false;
+    ['pwCurrent','pwNew','pwNew2'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('admDefaultWarn').style.display = 'none';
+    setMsg('pwMsg', 'Contraseña cambiada correctamente.' + (cloudEnabled ? ' Vale en todas las laptops.' : ' (Solo en esta laptop: no hay conexión con la nube.)'), true);
+  });
+});
+function renderAdminPanel(){
+  document.getElementById('admLimite').value = horaLimite;
+  document.getElementById('admDefaultWarn').style.display = adminUsingDefault ? 'block' : 'none';
+  ['pwCurrent','pwNew','pwNew2'].forEach(id => document.getElementById(id).value = '');
+  setMsg('scheduleMsg', '', true); setMsg('pwMsg', '', true);
+}
+
+/* =========================================================
+   PLANTILLA / EXPORTACIÓN DE NÓMINA (mismo formato que se importa)
+========================================================= */
+function buildRosterAOA(students){
+  const aoa = [[], ['', 'LISTA DE ESTUDIANTES - "JOSAFI" - 2026']];
+  allSections().forEach(sec=>{
+    const rows = students ? students.filter(s => s.grado === sec.grado && s.seccion === sec.seccion).sort(compareStudents) : [];
+    const total = students ? rows.length + 5 : 40;
+    aoa.push(['', `${sec.grado}${sec.seccion} - TUTOR(A): (escribe aquí el nombre del tutor)`]);
+    aoa.push(['', 'N°', 'APELLIDOS Y NOMBRES', 'DNI']);
+    for(let i = 0; i < total; i++){
+      const s = rows[i];
+      aoa.push(['', i + 1, s ? s.ap : '', s ? String(s.dni) : '']);
+    }
+    aoa.push([]);
+  });
+  return aoa;
+}
+function buildRosterWorkbook(students){
+  const aoa = buildRosterAOA(students);
+  const sheet = XLSX.utils.aoa_to_sheet(aoa);
+  // Columna DNI en formato texto: así Excel no quita los ceros iniciales.
+  aoa.forEach((row, r)=>{
+    if(row && typeof row[1] === 'number'){
+      const addr = XLSX.utils.encode_cell({ r, c:3 });
+      const cell = sheet[addr] || (sheet[addr] = { t:'s', v:'' });
+      cell.t = 's'; cell.z = '@'; if(cell.v === undefined) cell.v = '';
+    }
+  });
+  sheet['!cols'] = [{ wch:3 }, { wch:6 }, { wch:46 }, { wch:16 }];
+  const help = XLSX.utils.aoa_to_sheet([
+    ['PLANTILLA DE NÓMINA - I.E. "JOSÉ SANTOS FIGUEROA"'],
+    [],
+    ['1. Trabaja en la hoja "LISTA GENERAL". Cada sección (1A, 1B ... 5B) tiene su propio bloque.'],
+    ['2. En cada fila escribe: APELLIDOS Y NOMBRES (ej. QUISPE ÑAUPA, YANDIRA) y el DNI (solo números).'],
+    ['3. Después de "TUTOR(A):" puedes escribir el nombre del tutor. No cambies el inicio del título (ej. "1A -").'],
+    ['4. No borres la fila "N° / APELLIDOS Y NOMBRES / DNI" de cada bloque.'],
+    ['5. Las filas vacías se ignoran. Si necesitas más filas, inserta filas dentro del mismo bloque.'],
+    ['6. El DNI debe tener solo números (de 6 a 10 dígitos). La columna ya está en formato texto para conservar ceros iniciales.'],
+    ['7. En el programa: Estudiantes > "Importar nómina completa desde Excel". Marca "Reemplazar toda la nómina actual" solo si este archivo trae a TODOS los estudiantes.'],
+  ]);
+  help['!cols'] = [{ wch:120 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, sheet, 'LISTA GENERAL');
+  XLSX.utils.book_append_sheet(wb, help, 'INSTRUCCIONES');
+  return wb;
+}
+document.getElementById('btnTemplateBlank').addEventListener('click', ()=>{
+  XLSX.writeFile(buildRosterWorkbook(null), 'Plantilla_Nomina_JOSAFI.xlsx');
+});
+document.getElementById('btnTemplateCurrent').addEventListener('click', ()=>{
+  const list = getStudents();
+  if(list.length === 0){ toast('La nómina está vacía: descarga la plantilla en blanco.', true); return; }
+  XLSX.writeFile(buildRosterWorkbook(list), 'Nomina_actual_JOSAFI.xlsx');
+});
+function rejectedNote(rej){
+  if(!rej || rej.length === 0) return '';
+  const ej = rej.slice(0, 4).map(r => `${r.ap} (${r.motivo})`).join('; ');
+  return ` Se omitieron ${rej.length} fila(s): ${ej}${rej.length > 4 ? '…' : ''}.`;
+}
+
+/* =========================================================
+   TABS  (Escanear libre; el resto pide contraseña de administrador)
+========================================================= */
+function showView(view){
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
+  if(view === 'estudiantes') renderRoster();
+  if(view === 'reportes') renderReportStats();
+  if(view === 'admin') renderAdminPanel();
+}
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const view = btn.dataset.view;
+    if(LOCKED_VIEWS.includes(view) && !adminUnlocked){ openLogin(view); return; }
+    showView(view);
+  });
+});
+
 
 /* =========================================================
    TOASTS
@@ -11014,12 +11434,13 @@ function renderAttendanceTable(){
   }
   const body = document.getElementById('attTableBody');
   if(list.length === 0){
-    body.innerHTML = '<tr class="empty-row"><td colspan="4">Aún no hay registros hoy.</td></tr>';
+    body.innerHTML = '<tr class="empty-row"><td colspan="5">Aún no hay registros hoy.</td></tr>';
     return;
   }
   body.innerHTML = list.map(r => `
     <tr>
       <td class="mono">${r.hora}</td>
+      <td>${estadoBadge(estadoOf(r))}</td>
       <td>${escapeHtml(r.ap)}</td>
       <td class="mono">${escapeHtml(r.dni)}</td>
       <td>${seccionKey(r.grado, r.seccion)}</td>
@@ -11298,15 +11719,16 @@ function parseQrPayload(raw){
 }
 
 function feedbackPresent(data, hora, record){
+  const estado = estadoOf(record);
   beepSuccess();
-  showStamp('Presente', false);
-  setLastScan(data, hora, false);
-  toast(`${data.ap} — ${seccionKey(record.grado, record.seccion)} — ${hora}`);
+  showStamp('Presente · ' + estado, false, estado === 'Tarde');
+  setLastScan(data, hora, false, estado);
+  toast(`${data.ap} — ${seccionKey(record.grado, record.seccion)} — ${hora} — ${estado}`, estado === 'Tarde');
 }
-function feedbackDuplicate(data, hora){
+function feedbackDuplicate(data, hora, rec){
   beepDuplicate();
   showStamp('Ya registrado ' + hora, true);
-  setLastScan(data, hora, true);
+  setLastScan(data, hora, true, estadoOf(rec || { hora }));
 }
 
 let autoSaveTimer = null;
@@ -11322,11 +11744,11 @@ async function registerAttendance(data){
   const dni = String(data.dni);
   const now = new Date();
   const hora = now.toLocaleTimeString('es-PE', {hour12:false});
-  const record = { ap:data.ap, dni, grado:Number(data.grado), seccion:String(data.seccion).toUpperCase(), fecha: date, hora, timestamp: now.getTime() };
+  const record = { ap:data.ap, dni, grado:Number(data.grado), seccion:String(data.seccion).toUpperCase(), fecha: date, hora, timestamp: now.getTime(), estado: classifyByDate(now) };
 
   // Duplicado rápido: la lista de hoy se mantiene al día en tiempo real.
   const known = getAttendance(date).find(r => String(r.dni) === dni);
-  if(known){ feedbackDuplicate(data, known.hora); return; }
+  if(known){ feedbackDuplicate(data, known.hora, known); return; }
 
   if(cloudEnabled && db && navigator.onLine){
     try{
@@ -11339,7 +11761,7 @@ async function registerAttendance(data){
         tx.set(ref, record);
         return { dup:false, rec:record };
       }), 8000);
-      if(result.dup){ feedbackDuplicate(data, result.rec.hora); return; }
+      if(result.dup){ feedbackDuplicate(data, result.rec.hora, result.rec); return; }
       feedbackPresent(data, hora, record);
       scheduleAutoSave();
       return;
@@ -11359,7 +11781,7 @@ async function registerAttendance(data){
   scheduleAutoSave();
 }
 
-function setLastScan(data, hora, dup){
+function setLastScan(data, hora, dup, estado){
   const el = document.getElementById('lastScan');
   el.classList.remove('empty');
   el.innerHTML = `
@@ -11367,13 +11789,15 @@ function setLastScan(data, hora, dup){
     <div class="txt">
       <strong>${escapeHtml(data.ap)}</strong>
       <span>DNI ${escapeHtml(String(data.dni))} · ${seccionKey(Number(data.grado), String(data.seccion).toUpperCase())} · ${hora}${dup?' (ya registrado)':''}</span>
+      ${estado ? `<div style="margin-top:4px;">${estadoBadge(estado)}</div>` : ''}
     </div>`;
 }
 
-function showStamp(text, dup){
+function showStamp(text, dup, late){
   const stamp = document.getElementById('stamp');
   stamp.textContent = text;
   stamp.classList.toggle('dup', !!dup);
+  stamp.classList.toggle('late', !!late);
   stamp.classList.remove('show');
   void stamp.offsetWidth;
   stamp.classList.add('show');
@@ -11547,6 +11971,7 @@ document.getElementById('btnRestoreJosafi').addEventListener('click', (ev)=>{
 ========================================================= */
 function parseRosterWorkbook(wb){
   const students = [];
+  const rejected = [];
   const preferred = wb.SheetNames.find(n => n.toUpperCase().includes('LISTA'));
   const sheetName = preferred || wb.SheetNames[0];
   const sheet = wb.Sheets[sheetName];
@@ -11564,17 +11989,20 @@ function parseRosterWorkbook(wb){
     if(matchedHeader) return;
     const joined = cells.map(c => String(c).trim().toUpperCase()).join(' ');
     if(joined.includes('APELLIDOS Y NOMBRES') && joined.includes('DNI')) return;
-    if(cells.length >= 3 && grado !== null){
+    if(grado !== null && cells.length >= 2){
       const nVal = String(cells[0]).trim();
       if(/^\d+$/.test(nVal)){
         const ap = String(cells[1]).trim().replace(/\s+/g,' ');
-        let dni = String(cells[2]).trim().replace(/\.0$/,'');
+        const dni = cells.length >= 3 ? String(cells[2]).trim().replace(/\.0$/,'') : '';
         if(ap && /^\d{6,10}$/.test(dni)){
           students.push({ ap, dni, grado, seccion });
+        }else if(ap && /[A-Za-zÁÉÍÓÚÑáéíóúñ]/.test(ap)){
+          rejected.push({ ap, motivo: dni ? `DNI no válido: ${dni}` : 'sin DNI' });
         }
       }
     }
   });
+  students.rejected = rejected;
   return students;
 }
 
@@ -11595,7 +12023,7 @@ document.getElementById('btnImportExcel').addEventListener('click', (ev)=>{
     }
     const result = document.getElementById('importResult');
     if(imported.length === 0){
-      result.textContent = 'No se detectaron estudiantes. Verifica el formato del archivo.';
+      result.textContent = 'No se detectaron estudiantes. Verifica el formato del archivo (puedes usar la plantilla).' + rejectedNote(imported.rejected);
       return;
     }
     // Quita DNI repetidos dentro del mismo archivo (queda el último).
@@ -11609,9 +12037,9 @@ document.getElementById('btnImportExcel').addEventListener('click', (ev)=>{
       if(!ok){ result.textContent = 'No se importó nada: revisa el aviso rojo.'; return; }
       const nuevos = unique.filter(s => !existing.has(String(s.dni))).length;
       const secciones = new Set(unique.map(s => s.grado + s.seccion)).size;
-      result.textContent = replace
+      result.textContent = (replace
         ? `Nómina reemplazada: ${unique.length} estudiantes en ${secciones} secciones.`
-        : `${nuevos} nuevo(s) y ${unique.length - nuevos} actualizado(s), en ${secciones} secciones.`;
+        : `${nuevos} nuevo(s) y ${unique.length - nuevos} actualizado(s), en ${secciones} secciones.`) + rejectedNote(imported.rejected);
       toast('Nómina importada correctamente.');
     });
   };
@@ -12065,6 +12493,7 @@ renderRoster();
 renderReportStats();
 
 // Conexión automática y en tiempo real con la nube (sin configurar nada).
+updateScheduleUI();
 startCloud();
 </script>
 </body>
