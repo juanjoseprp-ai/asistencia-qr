@@ -10729,6 +10729,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <p class="hint">Mínimo 6 caracteres. Si la olvidas: en Firebase → Firestore Database → colección <span class="mono">config</span> → documento <span class="mono">admin</span> → eliminar. Vuelve la contraseña inicial.</p>
       </div>
     </div>
+
+    <div class="card" style="margin-top:22px;border-color:#F5C2C2;">
+      <strong style="font-family:var(--display);color:var(--red);font-size:14px;">⚠ Zona de peligro: borrar todo el registro de asistencia</strong>
+      <p class="hint">Elimina <b>todas las asistencias de todas las fechas</b>, en todas las laptops conectadas, para empezar de cero. <b>No se borran</b> la nómina de estudiantes, el horario ni la contraseña. Esta acción no se puede deshacer: descarga antes el Excel como respaldo.</p>
+      <div style="margin:10px 0;"><button class="btn btn-outline" id="btnDownloadBeforeDelete">⬇ Descargar Excel de respaldo</button></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <input type="text" id="delConfirm" placeholder="Escribe BORRAR para confirmar" autocomplete="off" style="min-width:240px;">
+        <button class="btn btn-danger" id="btnDeleteAllAtt" disabled>🗑 Borrar todo el registro de asistencia</button>
+      </div>
+      <p class="hint" id="delMsg"></p>
+    </div>
   </section>
 
 </main>
@@ -11153,7 +11164,7 @@ function lockAdmin(message){
   updateLockUI();
   closeLogin();
   if(typeof closeEditStudent === 'function') closeEditStudent();
-  ['pwCurrent','pwNew','pwNew2'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  ['pwCurrent','pwNew','pwNew2','delConfirm'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   const active = document.querySelector('.tab-btn.active');
   if(active && LOCKED_VIEWS.includes(active.dataset.view)) showView('escanear');
   if(was && message) toast(message);
@@ -11298,9 +11309,90 @@ document.getElementById('btnChangePw').addEventListener('click', async (ev)=>{
 function renderAdminPanel(){
   document.getElementById('admLimite').value = horaLimite;
   document.getElementById('admDefaultWarn').style.display = adminUsingDefault ? 'block' : 'none';
-  ['pwCurrent','pwNew','pwNew2'].forEach(id => document.getElementById(id).value = '');
-  setMsg('scheduleMsg', '', true); setMsg('pwMsg', '', true);
+  ['pwCurrent','pwNew','pwNew2','delConfirm'].forEach(id => document.getElementById(id).value = '');
+  setMsg('scheduleMsg', '', true); setMsg('pwMsg', '', true); setMsg('delMsg', '', true);
+  syncDeleteButton();
 }
+
+/* ---- Borrar todo el registro de asistencia (empezar de cero) ---- */
+function localAttendanceKeys(){
+  const keys = [];
+  for(let i = 0; i < localStorage.length; i++){
+    const k = localStorage.key(i);
+    if(k && k.startsWith(LS_ATT_PREFIX)) keys.push(k);
+  }
+  return keys;
+}
+function resetLastScanPanel(){
+  const el = document.getElementById('lastScan'); if(!el) return;
+  el.className = 'last-scan empty';
+  el.innerHTML = '<div class="badge">i</div><div class="txt"><strong>Esperando lectura&hellip;</strong><span>Apunta el carnet del estudiante hacia el recuadro dorado.</span></div>';
+}
+function syncDeleteButton(){
+  const inp = document.getElementById('delConfirm'), btn = document.getElementById('btnDeleteAllAtt');
+  if(inp && btn) btn.disabled = inp.value.trim().toUpperCase() !== 'BORRAR';
+}
+document.getElementById('delConfirm').addEventListener('input', syncDeleteButton);
+document.getElementById('btnDownloadBeforeDelete').addEventListener('click', ()=> document.getElementById('btnDownloadXlsx').click());
+document.getElementById('btnDeleteAllAtt').addEventListener('click', async (ev)=>{
+  if(!adminUnlocked) return;
+  if(document.getElementById('delConfirm').value.trim().toUpperCase() !== 'BORRAR'){
+    setMsg('delMsg', 'Escribe BORRAR para confirmar.', false); return;
+  }
+  await runBusy(ev.currentTarget, async ()=>{
+    setMsg('delMsg', 'Leyendo el registro…', true);
+    let ids = null;                       // documentos en la nube
+    let count = 0;
+    const dates = new Set();
+    if(cloudEnabled && db){
+      if(!navigator.onLine){ setMsg('delMsg', 'Sin internet: para borrar en todas las laptops necesitas conexión.', false); return; }
+      try{
+        const snap = await withTimeout(db.collection('asistencia').get(), 20000);
+        ids = [];
+        snap.forEach(doc => { ids.push(doc.id); const d = doc.data(); if(d && d.fecha) dates.add(d.fecha); });
+        count = ids.length;
+      }catch(err){ setMsg('delMsg', 'No se pudo leer el registro: ' + explainCloudError(err), false); return; }
+    }else{
+      localAttendanceKeys().forEach(k => {
+        let list = []; try{ list = JSON.parse(localStorage.getItem(k)) || []; }catch(e){}
+        count += list.length;
+        if(list.length) dates.add(k.slice(LS_ATT_PREFIX.length));
+      });
+    }
+    if(count > 0 && !confirm(`Se borrarán ${count} registro(s) de asistencia de ${dates.size} fecha(s)${ids ? ' en TODAS las laptops' : ''}. Esta acción NO se puede deshacer.\n\n¿Borrar todo y empezar de cero?`)){
+      setMsg('delMsg', 'Cancelado: no se borró nada.', true); return;
+    }
+    // 1) La nube, en tandas
+    if(ids){
+      let deleted = 0;
+      try{
+        for(let i = 0; i < ids.length; i += 400){
+          const batch = db.batch();
+          ids.slice(i, i + 400).forEach(id => batch.delete(db.collection('asistencia').doc(id)));
+          await withTimeout(batch.commit(), 20000);
+          deleted += Math.min(400, ids.length - i);
+        }
+      }catch(err){
+        pastCache = null;
+        setMsg('delMsg', `Se borraron ${deleted} de ${ids.length} registro(s) y luego falló: ${explainCloudError(err)} Vuelve a intentarlo.`, false);
+        return;
+      }
+    }
+    // 2) Esta laptop: copias locales, envíos pendientes y pantalla
+    localAttendanceKeys().forEach(k => localStorage.removeItem(k));
+    setPending([]);
+    pastCache = null;
+    lastDecoded = { text:null, time:0 };
+    resetLastScanPanel();
+    renderAttendanceTable();
+    renderReportStats();
+    document.getElementById('delConfirm').value = '';
+    if(count === 0){ setMsg('delMsg', 'No había registros de asistencia para borrar.', true); return; }
+    setMsg('delMsg', `Listo: se borraron ${count} registro(s). El registro de asistencia está en cero.`, true);
+    toast('🗑 Registro de asistencia borrado: empezamos de cero.');
+  });
+  syncDeleteButton();
+});
 
 /* =========================================================
    PLANTILLA / EXPORTACIÓN DE NÓMINA (mismo formato que se importa)
@@ -12372,31 +12464,41 @@ function buildSectionSheet(sec, allRecords, dateList){
       }
     });
 
-  // Una sola fila de encabezado: cada día es directamente su fecha.
-  const header = ['N°', 'Apellidos y Nombres', 'DNI', ...dateList.map(d => formatFechaDisplay(d))];
-  const aoa = [header];
+  // Dos filas de encabezado: arriba la fecha (combinada sobre sus 2 columnas) y
+  // debajo "Hora" y "Estado" (Temprano / Tarde según el horario del administrador).
+  const headerRow1 = ['N°', 'Apellidos y Nombres', 'DNI', ...dateList.flatMap(d => [formatFechaDisplay(d), ''])];
+  const headerRow2 = ['', '', '', ...dateList.flatMap(() => ['Hora', 'Estado'])];
+  const aoa = [headerRow1, headerRow2];
+  const merges = [0, 1, 2].map(c => ({ s:{ r:0, c }, e:{ r:1, c } }));
+  dateList.forEach((d, i) => merges.push({ s:{ r:0, c:3 + i * 2 }, e:{ r:0, c:4 + i * 2 } }));
   let total = 0;
 
   if(students.length === 0){
-    aoa.push([ '', '(sin estudiantes registrados en esta sección)', '', ...dateList.map(()=>'') ]);
+    aoa.push([ '', '(sin estudiantes registrados en esta sección)', '', ...dateList.flatMap(() => ['', '']) ]);
   }else{
     const byDateDni = {};
     dateList.forEach(d => byDateDni[d] = {});
     allRecords
       .filter(r => sectionDnis.has(String(r.dni)))
-      .forEach(r => { if(byDateDni[r.fecha]){ byDateDni[r.fecha][String(r.dni)] = r.hora; total++; } });
+      .forEach(r => {
+        if(byDateDni[r.fecha]){ byDateDni[r.fecha][String(r.dni)] = { hora:r.hora, estado:estadoOf(r) }; total++; }
+      });
 
     students.forEach((s, idx) => {
       const row = [idx+1, s.ap, s.dni];
-      dateList.forEach(d => row.push(byDateDni[d][String(s.dni)] || ''));
+      dateList.forEach(d => {
+        const x = byDateDni[d][String(s.dni)];
+        row.push(x ? x.hora : '', x ? x.estado : '');
+      });
       aoa.push(row);
     });
   }
 
   const sheet = XLSX.utils.aoa_to_sheet(aoa);
+  sheet['!merges'] = merges;
   sheet['!cols'] = [
     {wch:5}, {wch:34}, {wch:12},
-    ...dateList.map(()=> ({wch:11}))
+    ...dateList.flatMap(() => [{wch:11}, {wch:11}])
   ];
   return { sheet, total };
 }
